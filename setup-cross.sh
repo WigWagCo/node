@@ -1,3 +1,4 @@
+
 #!/bin/sh -e
 
 
@@ -16,6 +17,7 @@ PREFIX_BIN=$CROSS_BASE/bin/arm-fsl-linux-gnueabi
 #export CSTOOLS=/opt/code-sourcery/arm-2009q1
 export CSTOOLS=$CROSS_BASE/bin
 ROOTFS_USR_LIB=/opt2/freescale/ltib/ltib/rootfs/usr/lib
+ROOTFS_USR_INC=/opt2/freescale/ltib/ltib/rootfs/usr/include
 
 # cross library directory, should include stdc++:
 export CSTOOLS_LIB=/opt/ltib/rootfs/lib
@@ -44,6 +46,7 @@ export CCFLAGS="-march=armv5te -mtune=arm926ej-s -mno-thumb-interwork -lstdc++"
 
 export ARM_TARGET_LIB=$CTOOLS_LIB
 
+export GYP_DEFINES="armv7=0" # if your target does not do ARM v7 instructions then =0
 
 export CPP="${PREFIX_BIN}-gcc -E"
 export STRIP="${PREFIX_BIN}-strip"
@@ -52,7 +55,8 @@ export AR="${PREFIX_BIN}-ar"
 export F77="${PREFIX_BIN}-g77 ${TARGET_ARCH} ${TARGET_TUNE}"
 unset LIBC
 export RANLIB="${PREFIX_BIN}-ranlib"
-export LD="${PREFIX_BIN}-ld"
+#export LD="${PREFIX_BIN}-ld"  # for some reason this newer ld for arm does not have -rpath option (or at least they aren't taking) so go to g++
+export LD="${PREFIX_BIN}-g++"
 export LDFLAGS="-L${CSTOOLS_USR_LIB} -L${CSTOOLS_LIB} -Wl,-rpath-link,${CSTOOLS_LIB} -Wl,-O1 -Wl,--hash-style=gnu"
 export MAKE="make"
 export CXXFLAGS="-isystem${CSTOOLS_INC} -fexpensive-optimizations -frename-registers -fomit-frame-pointer -O0 -ggdb3 -fpermissive -fvisibility-inlines-hidden"
@@ -73,8 +77,8 @@ export AS="${PREFIX_BIN}-as"
 #export LINK.host="ld -m elf_i386"
 # Configure node.js for cross-compile
 
-#./configure --without-snapshot --dest-cpu=arm --gdb 
-./configure --without-snapshot --dest-cpu=arm --gdb --shared-v8 --libz-path=${ROOTFS_USR_LIB}
+./configure --debug --without-snapshot --dest-cpu=arm --gdb --shared-zlib --shared-zlib-libpath=${ROOTFS_USR_LIB} --shared-zlib-includes=${ROOTFS_USR_INC} --without-ssl --no-ssl2 # --shared-v8
 
 bash --norc
 
+# or run make / make -j 8 / etc...
