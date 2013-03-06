@@ -43,7 +43,7 @@
     # access is allowed for all CPUs.
     'v8_can_use_unaligned_accesses%': 'default',
 
-    # Setting 'v8_can_use_vfp_instructions' to 'true' will enable use of ARM VFP
+    # Setting 'v8_can_use_vfp2_instructions' to 'true' will enable use of ARM VFP
     # instructions in the V8 generated code. VFP instructions will be enabled
     # both for the snapshot and for the ARM target. Leaving the default value
     # of 'false' will avoid VFP instructions in the snapshot and use CPU feature
@@ -73,12 +73,14 @@
     # Enable extra checks in API functions and other strategic places.
     'v8_enable_extra_checks%': 1,
 
-    'v8_object_print%': 0,
-
     'v8_enable_gdbjit%': 0,
+
+    'v8_object_print%': 0,
 
     # Enable profiling support. Only required on Windows.
     'v8_enable_prof%': 0,
+
+    'v8_enable_verify_heap%': 0,
 
     # Some versions of GCC 4.5 seem to need -fno-strict-aliasing.
     'v8_no_strict_aliasing%': 0,
@@ -103,9 +105,6 @@
     # Interpreted regexp engine exists as platform-independent alternative
     # based where the regular expression is compiled to a bytecode.
     'v8_interpreted_regexp%': 0,
-
-    # Name of the python executable.
-    'python%': 'python',
   },
   'target_defaults': {
     'conditions': [
@@ -118,11 +117,14 @@
       ['v8_enable_extra_checks==1', {
         'defines': ['ENABLE_EXTRA_CHECKS',],
       }],
+      ['v8_enable_gdbjit==1', {
+        'defines': ['ENABLE_GDB_JIT_INTERFACE',],
+      }],
       ['v8_object_print==1', {
         'defines': ['OBJECT_PRINT',],
       }],
-      ['v8_enable_gdbjit==1', {
-        'defines': ['ENABLE_GDB_JIT_INTERFACE',],
+      ['v8_enable_verify_heap==1', {
+        'defines': ['VERIFY_HEAP',],
       }],
       ['v8_interpreted_regexp==1', {
         'defines': ['V8_INTERPRETED_REGEXP',],
@@ -155,7 +157,7 @@
           [ 'v8_use_arm_eabi_hardfloat=="true"', {
             'defines': [
               'USE_EABI_HARDFLOAT=1',
-              'CAN_USE_VFP3_INSTRUCTIONS',
+              'CAN_USE_VFP2_INSTRUCTIONS',
             ],
             'target_conditions': [
               ['_toolset=="target"', {
@@ -274,7 +276,8 @@
           },
         },
       }],
-      ['OS in "linux freebsd dragonflybsd openbsd solaris netbsd".split()', {
+      ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
+         or OS=="netbsd"', {
         'conditions': [
           [ 'v8_no_strict_aliasing==1', {
             'cflags': [ '-fno-strict-aliasing' ],
@@ -284,8 +287,8 @@
       ['OS=="solaris"', {
         'defines': [ '__C99FEATURES__=1' ],  # isinf() etc.
       }],
-      ['(OS=="linux" or OS=="freebsd" or OS=="dragonflybsd" or OS=="openbsd" \
-         or OS=="solaris" or OS=="netbsd" or OS=="mac" or OS=="android") and \
+      ['(OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
+         or OS=="netbsd" or OS=="mac" or OS=="android") and \
         (v8_target_arch=="arm" or v8_target_arch=="ia32" or \
          v8_target_arch=="mipsel")', {
         # Check whether the host compiler and target compiler support the
@@ -304,16 +307,21 @@
           ['_toolset=="target"', {
             'variables': {
               'm32flag': '<!((echo | $(echo ${CXX_target:-${CXX:-$(which g++)}}) -m32 -E - > /dev/null 2>&1) && echo "-m32" || true)',
+              'clang%': 0,
             },
-            'cflags': [ '<(m32flag)' ],
-            'ldflags': [ '<(m32flag)' ],
+            'conditions': [
+              ['OS!="android" or clang==1', {
+                'cflags': [ '<(m32flag)' ],
+                'ldflags': [ '<(m32flag)' ],
+              }],
+            ],
             'xcode_settings': {
               'ARCHS': [ 'i386' ],
             },
           }],
         ],
       }],
-      ['OS=="freebsd" or OS=="dragonflybsd" or OS=="openbsd"', {
+      ['OS=="freebsd" or OS=="openbsd"', {
         'cflags': [ '-I/usr/local/include' ],
       }],
       ['OS=="netbsd"', {
@@ -327,6 +335,7 @@
           'ENABLE_DISASSEMBLER',
           'V8_ENABLE_CHECKS',
           'OBJECT_PRINT',
+          'VERIFY_HEAP',
         ],
         'msvs_settings': {
           'VCCLCompilerTool': {
@@ -345,7 +354,7 @@
           },
         },
         'conditions': [
-          ['OS in "linux freebsd dragonflybsd openbsd netbsd".split()', {
+          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
             'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
                         '-Wnon-virtual-dtor', '-Woverloaded-virtual' ],
           }],
@@ -367,8 +376,8 @@
       },  # Debug
       'Release': {
         'conditions': [
-          ['OS=="linux" or OS=="freebsd" or OS=="dragonflybsd" \
-            or OS=="openbsd" or OS=="netbsd" or OS=="android"', {
+          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" \
+            or OS=="android"', {
             'conditions': [
               [ 'gcc_version==44 and clang==0', {
                 'cflags': [

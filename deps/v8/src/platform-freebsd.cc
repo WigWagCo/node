@@ -43,14 +43,11 @@
 #include <sys/fcntl.h>  // open
 #include <unistd.h>     // getpagesize
 // If you don't have execinfo.h then you need devel/libexecinfo from ports.
+#include <execinfo.h>   // backtrace, backtrace_symbols
 #include <strings.h>    // index
 #include <errno.h>
 #include <stdarg.h>
 #include <limits.h>
-
-#if !defined(__DragonFly__)
-#include <execinfo.h>   // backtrace, backtrace_symbols
-#endif
 
 #undef MAP_TYPE
 
@@ -299,9 +296,6 @@ void OS::SignalCodeMovingGC() {
 
 
 int OS::StackWalk(Vector<OS::StackFrame> frames) {
-#if defined(__DragonFly__)
-  return 0;
-#else
   int frames_size = frames.length();
   ScopedVector<void*> addresses(frames_size);
 
@@ -326,7 +320,6 @@ int OS::StackWalk(Vector<OS::StackFrame> frames) {
   free(symbols);
 
   return frames_count;
-#endif
 }
 
 
@@ -619,13 +612,6 @@ void FreeBSDSemaphore::Wait() {
 
 
 bool FreeBSDSemaphore::Wait(int timeout) {
-#if defined(__DragonFly__)
-  /* DragonFlyBSD lacks sem_timedwait() and there is no good way to emulate it.
-   */
-  if (sem_wait(&sem_)) abort();
-  USE(timeout);
-  return true;
-#else
   const long kOneSecondMicros = 1000000;  // NOLINT
 
   // Split timeout into second and nanosecond parts.
@@ -651,7 +637,6 @@ bool FreeBSDSemaphore::Wait(int timeout) {
     if (result == -1 && errno == ETIMEDOUT) return false;  // Timeout.
     CHECK(result == -1 && errno == EINTR);  // Signal caused spurious wakeup.
   }
-#endif
 }
 
 

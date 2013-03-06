@@ -57,7 +57,7 @@ int uv_pipe_bind(uv_pipe_t* handle, const char* name) {
   bound = 0;
 
   /* Already bound? */
-  if (handle->io_watcher.fd >= 0) {
+  if (uv__stream_fd(handle) >= 0) {
     uv__set_artificial_error(handle->loop, UV_EINVAL);
     goto out;
   }
@@ -117,13 +117,13 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb) {
   saved_errno = errno;
   status = -1;
 
-  if (handle->io_watcher.fd == -1) {
+  if (uv__stream_fd(handle) == -1) {
     uv__set_artificial_error(handle->loop, UV_EINVAL);
     goto out;
   }
-  assert(handle->io_watcher.fd >= 0);
+  assert(uv__stream_fd(handle) >= 0);
 
-  if ((status = listen(handle->io_watcher.fd, backlog)) == -1) {
+  if ((status = listen(uv__stream_fd(handle), backlog)) == -1) {
     uv__set_sys_error(handle->loop, errno);
   } else {
     handle->connection_cb = cb;
@@ -172,7 +172,7 @@ void uv_pipe_connect(uv_connect_t* req,
   int r;
 
   saved_errno = errno;
-  new_sock = (handle->io_watcher.fd == -1);
+  new_sock = (uv__stream_fd(handle) == -1);
   err = -1;
 
   if (new_sock)
@@ -183,20 +183,19 @@ void uv_pipe_connect(uv_connect_t* req,
   uv_strlcpy(saddr.sun_path, name, sizeof(saddr.sun_path));
   saddr.sun_family = AF_UNIX;
 
-  /* We don't check for EINPROGRESS. Think about it: the socket
-   * is either there or not.
-   */
   do {
-    r = connect(handle->io_watcher.fd, (struct sockaddr*)&saddr, sizeof saddr);
+    r = connect(uv__stream_fd(handle),
+                (struct sockaddr*)&saddr, sizeof saddr);
   }
   while (r == -1 && errno == EINTR);
 
   if (r == -1)
-    goto out;
+    if (errno != EINPROGRESS)
+      goto out;
 
   if (new_sock)
     if (uv__stream_open((uv_stream_t*)handle,
-                        handle->io_watcher.fd,
+                        uv__stream_fd(handle),
                         UV_STREAM_READABLE | UV_STREAM_WRITABLE))
       goto out;
 
@@ -212,8 +211,9 @@ out:
   req->cb = cb;
   ngx_queue_init(&req->queue);
 
-  /* Run callback on next tick. */
-  uv__io_feed(handle->loop, &handle->io_watcher);
+  /* Force callback to run on next tick in case of error. */
+  if (err != 0)
+    uv__io_feed(handle->loop, &handle->io_watcher);
 
   /* Mimic the Windows pipe implementation, always
    * return 0 and let the callback handle errors.
@@ -233,7 +233,7 @@ static void uv__pipe_accept(uv_loop_t* loop, uv__io_t* w, unsigned int events) {
 
   assert(pipe->type == UV_NAMED_PIPE);
 
-  sockfd = uv__accept(pipe->io_watcher.fd);
+  sockfd = uv__accept(uv__stream_fd(pipe));
   if (sockfd == -1) {
     if (errno != EAGAIN && errno != EWOULDBLOCK) {
       uv__set_sys_error(pipe->loop, errno);

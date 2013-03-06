@@ -26,8 +26,8 @@
 #define UNWRAP_NO_ABORT(type)                                               \
   assert(!args.Holder().IsEmpty());                                         \
   assert(args.Holder()->InternalFieldCount() > 0);                          \
-  type* wrap =                                                              \
-      static_cast<type*>(args.Holder()->GetPointerFromInternalField(0));
+  type* wrap = static_cast<type*>(                                          \
+      args.Holder()->GetPointerFromInternalField(0));
 
 namespace node {
 

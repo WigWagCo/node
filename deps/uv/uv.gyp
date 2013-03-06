@@ -31,10 +31,16 @@
         'include_dirs': [ 'include' ],
         'conditions': [
           ['OS != "win"', {
-            'defines': [ '_LARGEFILE_SOURCE', '_FILE_OFFSET_BITS=64' ],
+            'defines': [
+              '_LARGEFILE_SOURCE',
+              '_FILE_OFFSET_BITS=64',
+            ],
           }],
           ['OS == "mac"', {
             'defines': [ '_DARWIN_USE_64_BIT_INODE=1' ],
+          }],
+          ['OS == "linux"', {
+            'defines': [ '_POSIX_C_SOURCE=200112' ],
           }],
         ],
       },
@@ -94,9 +100,11 @@
           ],
           'link_settings': {
             'libraries': [
-              '-lws2_32.lib',
+              '-ladvapi32.lib',
+              '-liphlpapi.lib',
               '-lpsapi.lib',
-              '-liphlpapi.lib'
+              '-lshell32.lib',
+              '-lws2_32.lib'
             ],
           },
         }, { # Not Windows i.e. POSIX
@@ -106,7 +114,8 @@
             '-pedantic',
             '-Wall',
             '-Wextra',
-            '-Wno-unused-parameter'
+            '-Wstrict-aliasing',
+            '-Wno-unused-parameter',
           ],
           'sources': [
             'include/uv-private/uv-unix.h',
@@ -151,11 +160,20 @@
             }],
           ],
         }],
+        [ 'OS=="linux" or OS=="mac"', {
+          'sources': [ 'src/unix/proctitle.c' ],
+        }],
         [ 'OS=="mac"', {
-          'sources': [ 'src/unix/darwin.c', 'src/unix/fsevents.c' ],
+          'sources': [
+            'src/unix/darwin.c',
+            'src/unix/fsevents.c',
+            'src/unix/darwin-proctitle.m',
+          ],
           'link_settings': {
             'libraries': [
+              '$(SDKROOT)/System/Library/Frameworks/Foundation.framework',
               '$(SDKROOT)/System/Library/Frameworks/CoreServices.framework',
+              '$(SDKROOT)/System/Library/Frameworks/ApplicationServices.framework',
             ],
           },
           'defines': [
@@ -164,10 +182,10 @@
         }],
         [ 'OS=="linux"', {
           'sources': [
-            'src/unix/linux/linux-core.c',
-            'src/unix/linux/inotify.c',
-            'src/unix/linux/syscalls.c',
-            'src/unix/linux/syscalls.h',
+            'src/unix/linux-core.c',
+            'src/unix/linux-inotify.c',
+            'src/unix/linux-syscalls.c',
+            'src/unix/linux-syscalls.h',
           ],
           'link_settings': {
             'libraries': [ '-ldl', '-lrt' ],
@@ -250,6 +268,7 @@
         'test/test-cwd-and-chdir.c',
         'test/test-delayed-accept.c',
         'test/test-error.c',
+        'test/test-embed.c',
         'test/test-fail-always.c',
         'test/test-fs.c',
         'test/test-fs-event.c',
@@ -263,6 +282,7 @@
         'test/test-ipc-send-recv.c',
         'test/test-list.h',
         'test/test-loop-handles.c',
+        'test/test-loop-stop.c',
         'test/test-walk-handles.c',
         'test/test-multiple-listen.c',
         'test/test-pass-always.c',
@@ -274,6 +294,7 @@
         'test/test-poll-close.c',
         'test/test-process-title.c',
         'test/test-ref.c',
+        'test/test-run-nowait.c',
         'test/test-run-once.c',
         'test/test-semaphore.c',
         'test/test-shutdown-close.c',
@@ -294,16 +315,16 @@
         'test/test-tcp-connect-timeout.c',
         'test/test-tcp-connect6-error.c',
         'test/test-tcp-open.c',
-        'test/test-tcp-write-error.c',
         'test/test-tcp-write-to-half-open-connection.c',
         'test/test-tcp-writealot.c',
         'test/test-tcp-unexpected-read.c',
+        'test/test-tcp-read-stop.c',
         'test/test-threadpool.c',
+        'test/test-threadpool-cancel.c',
         'test/test-mutexes.c',
         'test/test-thread.c',
         'test/test-barrier.c',
         'test/test-condvar.c',
-        'test/test-condvar-consumer-producer.c',
         'test/test-timer-again.c',
         'test/test-timer.c',
         'test/test-tty.c',
@@ -361,6 +382,7 @@
         'test/benchmark-getaddrinfo.c',
         'test/benchmark-list.h',
         'test/benchmark-loop-count.c',
+        'test/benchmark-million-async.c',
         'test/benchmark-million-timers.c',
         'test/benchmark-multi-accept.c',
         'test/benchmark-ping-pongs.c',

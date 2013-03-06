@@ -76,10 +76,8 @@ consts_misc = [
     { 'name': 'SmiTag',                 'value': 'kSmiTag' },
     { 'name': 'SmiTagMask',             'value': 'kSmiTagMask' },
     { 'name': 'SmiValueShift',          'value': 'kSmiTagSize' },
+    { 'name': 'SmiShiftSize',           'value': 'kSmiShiftSize' },
     { 'name': 'PointerSizeLog2',        'value': 'kPointerSizeLog2' },
-
-    { 'name': 'transitions_idx_descriptors',
-        'value': 'TransitionArray::kDescriptorsIndex' },
 
     { 'name': 'prop_desc_key',
         'value': 'DescriptorArray::kDescriptorKey' },

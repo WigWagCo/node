@@ -1067,6 +1067,7 @@ TEST(TestInternalWeakLists) {
     }
 
     // Mark compact handles the weak references.
+    ISOLATE->compilation_cache()->Clear();
     HEAP->CollectAllGarbage(Heap::kNoGCFlags);
     CHECK_EQ(opt ? 4 : 0, CountOptimizedUserFunctions(ctx[i]));
 
@@ -1246,7 +1247,9 @@ TEST(TestSizeOfObjectsVsHeapIteratorPrecision) {
   for (HeapObject* obj = iterator.next();
        obj != NULL;
        obj = iterator.next()) {
-    size_of_objects_2 += obj->Size();
+    if (!obj->IsFreeSpace()) {
+      size_of_objects_2 += obj->Size();
+    }
   }
   // Delta must be within 5% of the larger result.
   // TODO(gc): Tighten this up by distinguishing between byte
@@ -1275,7 +1278,6 @@ static void FillUpNewSpace(NewSpace* new_space) {
   // that the scavenger does not undo the filling.
   v8::HandleScope scope;
   AlwaysAllocateScope always_allocate;
-  LinearAllocationScope allocate_linearly;
   intptr_t available = new_space->EffectiveCapacity() - new_space->Size();
   intptr_t number_of_fillers = (available / FixedArray::SizeFor(32)) - 1;
   for (intptr_t i = 0; i < number_of_fillers; i++) {
@@ -1397,6 +1399,7 @@ TEST(LeakNativeContextViaMap) {
     ctx2->Exit();
     ctx1->Exit();
     ctx1.Dispose();
+    v8::V8::ContextDisposedNotification();
   }
   HEAP->CollectAllAvailableGarbage();
   CHECK_EQ(2, NumberOfGlobalObjects());
@@ -1434,6 +1437,7 @@ TEST(LeakNativeContextViaFunction) {
     ctx2->Exit();
     ctx1->Exit();
     ctx1.Dispose();
+    v8::V8::ContextDisposedNotification();
   }
   HEAP->CollectAllAvailableGarbage();
   CHECK_EQ(2, NumberOfGlobalObjects());
@@ -1469,6 +1473,7 @@ TEST(LeakNativeContextViaMapKeyed) {
     ctx2->Exit();
     ctx1->Exit();
     ctx1.Dispose();
+    v8::V8::ContextDisposedNotification();
   }
   HEAP->CollectAllAvailableGarbage();
   CHECK_EQ(2, NumberOfGlobalObjects());
@@ -1508,6 +1513,7 @@ TEST(LeakNativeContextViaMapProto) {
     ctx2->Exit();
     ctx1->Exit();
     ctx1.Dispose();
+    v8::V8::ContextDisposedNotification();
   }
   HEAP->CollectAllAvailableGarbage();
   CHECK_EQ(2, NumberOfGlobalObjects());
@@ -1519,9 +1525,10 @@ TEST(LeakNativeContextViaMapProto) {
 
 TEST(InstanceOfStubWriteBarrier) {
   i::FLAG_allow_natives_syntax = true;
-#ifdef DEBUG
+#ifdef VERIFY_HEAP
   i::FLAG_verify_heap = true;
 #endif
+
   InitializeVM();
   if (!i::V8::UseCrankshaft()) return;
   v8::HandleScope outer_scope;
@@ -1630,9 +1637,10 @@ TEST(PrototypeTransitionClearing) {
 
 TEST(ResetSharedFunctionInfoCountersDuringIncrementalMarking) {
   i::FLAG_allow_natives_syntax = true;
-#ifdef DEBUG
+#ifdef VERIFY_HEAP
   i::FLAG_verify_heap = true;
 #endif
+
   InitializeVM();
   if (!i::V8::UseCrankshaft()) return;
   v8::HandleScope outer_scope;
@@ -1685,9 +1693,10 @@ TEST(ResetSharedFunctionInfoCountersDuringIncrementalMarking) {
 
 TEST(ResetSharedFunctionInfoCountersDuringMarkSweep) {
   i::FLAG_allow_natives_syntax = true;
-#ifdef DEBUG
+#ifdef VERIFY_HEAP
   i::FLAG_verify_heap = true;
 #endif
+
   InitializeVM();
   if (!i::V8::UseCrankshaft()) return;
   v8::HandleScope outer_scope;
@@ -1930,8 +1939,13 @@ TEST(ReleaseOverReservedPages) {
   HEAP->CollectAllGarbage(Heap::kNoGCFlags, "triggered by test 2");
   CHECK_GE(number_of_test_pages + 1, old_pointer_space->CountTotalPages() * 2);
 
-  // Triggering a last-resort GC should cause all pages to be released
-  // to the OS so that other processes can seize the memory.
+  // Triggering a last-resort GC should cause all pages to be released to the
+  // OS so that other processes can seize the memory.  If we get a failure here
+  // where there are 2 pages left instead of 1, then we should increase the
+  // size of the first page a little in SizeOfFirstPage in spaces.cc.  The
+  // first page should be small in order to reduce memory used when the VM
+  // boots, but if the 20 small arrays don't fit on the first page then that's
+  // an indication that it is too small.
   HEAP->CollectAllAvailableGarbage("triggered really hard");
   CHECK_EQ(1, old_pointer_space->CountTotalPages());
 }
@@ -2102,8 +2116,6 @@ TEST(IncrementalMarkingPreservesMonomorhpicIC) {
   Code* ic_before = FindFirstIC(f->shared()->code(), Code::LOAD_IC);
   CHECK(ic_before->ic_state() == MONOMORPHIC);
 
-  // Fire context dispose notification.
-  v8::V8::ContextDisposedNotification();
   SimulateIncrementalMarking();
   HEAP->CollectAllGarbage(Heap::kNoGCFlags);
 

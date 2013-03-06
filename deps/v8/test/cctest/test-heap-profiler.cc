@@ -1670,13 +1670,14 @@ TEST(MapHasDescriptorsAndTransitions) {
   const v8::HeapGraphNode* global_object =
       GetProperty(global, v8::HeapGraphEdge::kProperty, "obj");
   CHECK_NE(NULL, global_object);
+
   const v8::HeapGraphNode* map =
       GetProperty(global_object, v8::HeapGraphEdge::kInternal, "map");
   CHECK_NE(NULL, map);
-  const v8::HeapGraphNode* descriptors =
-      GetProperty(map, v8::HeapGraphEdge::kInternal, "descriptors");
-  CHECK_NE(NULL, descriptors);
-  const v8::HeapGraphNode* transitions =
-      GetProperty(map, v8::HeapGraphEdge::kInternal, "transitions");
-  CHECK_NE(NULL, transitions);
+  const v8::HeapGraphNode* own_descriptors = GetProperty(
+      map, v8::HeapGraphEdge::kInternal, "descriptors");
+  CHECK_NE(NULL, own_descriptors);
+  const v8::HeapGraphNode* own_transitions = GetProperty(
+      map, v8::HeapGraphEdge::kInternal, "transitions");
+  CHECK_EQ(NULL, own_transitions);
 }

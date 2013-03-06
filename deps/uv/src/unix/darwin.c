@@ -37,8 +37,6 @@
 #include <sys/sysctl.h>
 #include <unistd.h>  /* sysconf */
 
-static char *process_title;
-
 /* Forward declarations */
 void uv__cf_loop_runner(void* arg);
 void uv__cf_loop_cb(void* arg);
@@ -176,7 +174,7 @@ void uv__cf_loop_signal(uv_loop_t* loop, cf_loop_signal_cb cb, void* arg) {
 }
 
 
-uint64_t uv_hrtime(void) {
+uint64_t uv__hrtime(void) {
     mach_timebase_info_data_t info;
 
     if (mach_timebase_info(&info) != KERN_SUCCESS)
@@ -251,31 +249,6 @@ void uv_loadavg(double avg[3]) {
   avg[0] = (double) info.ldavg[0] / info.fscale;
   avg[1] = (double) info.ldavg[1] / info.fscale;
   avg[2] = (double) info.ldavg[2] / info.fscale;
-}
-
-
-char** uv_setup_args(int argc, char** argv) {
-  process_title = argc ? strdup(argv[0]) : NULL;
-  return argv;
-}
-
-
-uv_err_t uv_set_process_title(const char* title) {
-  /* TODO implement me */
-  return uv__new_artificial_error(UV_ENOSYS);
-}
-
-
-uv_err_t uv_get_process_title(char* buffer, size_t size) {
-  if (process_title) {
-    strncpy(buffer, process_title, size);
-  } else {
-    if (size > 0) {
-      buffer[0] = '\0';
-    }
-  }
-
-  return uv_ok_;
 }
 
 

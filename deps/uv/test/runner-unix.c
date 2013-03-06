@@ -24,6 +24,7 @@
 
 #include <stdint.h> /* uintptr_t */
 
+#include <errno.h>
 #include <unistd.h> /* usleep */
 #include <string.h> /* strdup */
 #include <stdio.h>
@@ -40,13 +41,10 @@
 
 /* Do platform-specific initialization. */
 void platform_init(int argc, char **argv) {
-  const char* var = getenv("UV_RUN_AS_ROOT");
+  const char* tap;
 
-  /* Running the tests as root is not smart - don't do it. */
-  if (getuid() == 0 && (var == NULL || atoi(var) <= 0)) {
-    fprintf(stderr, "Running the tests as root is not safe.\n");
-    exit(1);
-  }
+  tap = getenv("UV_TAP_OUTPUT");
+  tap_output = (tap != NULL && atoi(tap) > 0);
 
   /* Disable stdio output buffering. */
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -146,8 +144,11 @@ static void* dowait(void* data) {
 
   if (args->pipe[1] >= 0) {
     /* Write a character to the main thread to notify it about this. */
-    char c = 0;
-    write(args->pipe[1], &c, 1);
+    ssize_t r;
+
+    do
+      r = write(args->pipe[1], "", 1);
+    while (r == -1 && errno == EINTR);
   }
 
   return NULL;
@@ -257,19 +258,26 @@ int process_copy_output(process_info_t *p, int fd) {
     return -1;
   }
 
-  ssize_t nread, nwritten;
+  ssize_t nwritten;
   char buf[1024];
 
-  while ((nread = read(fileno(p->stdout_file), buf, 1024)) > 0) {
-    nwritten = write(fd, buf, nread);
-    /* TODO: what if write doesn't write the whole buffer... */
+  /* TODO: what if the line is longer than buf */
+  while (fgets(buf, sizeof(buf), p->stdout_file) != NULL) {
+   /* TODO: what if write doesn't write the whole buffer... */
+    nwritten = 0;
+
+    if (tap_output)
+      nwritten += write(fd, "#", 1);
+
+    nwritten += write(fd, buf, strlen(buf));
+
     if (nwritten < 0) {
       perror("write");
       return -1;
     }
   }
 
-  if (nread < 0) {
+  if (ferror(p->stdout_file)) {
     perror("read");
     return -1;
   }
@@ -309,7 +317,7 @@ void process_cleanup(process_info_t *p) {
 
 
 /* Move the console cursor one line up and back to the first column. */
-void rewind_cursor() {
+void rewind_cursor(void) {
   fprintf(stderr, "\033[2K\r");
 }
 

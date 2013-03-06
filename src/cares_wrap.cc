@@ -311,7 +311,7 @@ class QueryWrap {
 
   static void Callback(void *arg, int status, int timeouts,
       unsigned char* answer_buf, int answer_len) {
-    QueryWrap* wrap = reinterpret_cast<QueryWrap*>(arg);
+    QueryWrap* wrap = static_cast<QueryWrap*>(arg);
 
     if (status != ARES_SUCCESS) {
       wrap->ParseError(status);
@@ -324,7 +324,7 @@ class QueryWrap {
 
   static void Callback(void *arg, int status, int timeouts,
       struct hostent* host) {
-    QueryWrap* wrap = reinterpret_cast<QueryWrap*>(arg);
+    QueryWrap* wrap = static_cast<QueryWrap*>(arg);
 
     if (status != ARES_SUCCESS) {
       wrap->ParseError(status);
@@ -491,7 +491,8 @@ class QueryMxWrap: public QueryWrap {
          mx_current = mx_current->next) {
       Local<Object> mx_record = Object::New();
       mx_record->Set(exchange_symbol, String::New(mx_current->host));
-      mx_record->Set(priority_symbol, Integer::New(mx_current->priority));
+      mx_record->Set(priority_symbol,
+                     Integer::New(mx_current->priority));
       mx_records->Set(Integer::New(i++), mx_record);
     }
 
@@ -593,9 +594,12 @@ class QuerySrvWrap: public QueryWrap {
          srv_current = srv_current->next) {
       Local<Object> srv_record = Object::New();
       srv_record->Set(name_symbol, String::New(srv_current->host));
-      srv_record->Set(port_symbol, Integer::New(srv_current->port));
-      srv_record->Set(priority_symbol, Integer::New(srv_current->priority));
-      srv_record->Set(weight_symbol, Integer::New(srv_current->weight));
+      srv_record->Set(port_symbol,
+                      Integer::New(srv_current->port));
+      srv_record->Set(priority_symbol,
+                      Integer::New(srv_current->priority));
+      srv_record->Set(weight_symbol,
+                      Integer::New(srv_current->weight));
       srv_records->Set(Integer::New(i++), srv_record);
     }
 
@@ -882,11 +886,15 @@ static void Initialize(Handle<Object> target) {
   assert(r == ARES_SUCCESS);
 
   struct ares_options options;
+  memset(&options, 0, sizeof(options));
+  options.flags = ARES_FLAG_NOCHECKRESP;
   options.sock_state_cb = ares_sockstate_cb;
   options.sock_state_cb_data = uv_default_loop();
 
   /* We do the call to ares_init_option for caller. */
-  r = ares_init_options(&ares_channel, &options, ARES_OPT_SOCK_STATE_CB);
+  r = ares_init_options(&ares_channel,
+                        &options,
+                        ARES_OPT_FLAGS | ARES_OPT_SOCK_STATE_CB);
   assert(r == ARES_SUCCESS);
 
   /* Initialize the timeout timer. The timer won't be started until the */
@@ -906,9 +914,12 @@ static void Initialize(Handle<Object> target) {
   NODE_SET_METHOD(target, "getaddrinfo", GetAddrInfo);
   NODE_SET_METHOD(target, "isIP", IsIP);
 
-  target->Set(String::NewSymbol("AF_INET"), Integer::New(AF_INET));
-  target->Set(String::NewSymbol("AF_INET6"), Integer::New(AF_INET6));
-  target->Set(String::NewSymbol("AF_UNSPEC"), Integer::New(AF_UNSPEC));
+  target->Set(String::NewSymbol("AF_INET"),
+              Integer::New(AF_INET));
+  target->Set(String::NewSymbol("AF_INET6"),
+              Integer::New(AF_INET6));
+  target->Set(String::NewSymbol("AF_UNSPEC"),
+              Integer::New(AF_UNSPEC));
 
   oncomplete_sym = NODE_PSYMBOL("oncomplete");
 }

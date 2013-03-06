@@ -3445,7 +3445,7 @@ void MacroAssembler::StoreNumberToDoubleElements(Register value_reg,
     destination = FloatingPointHelper::kCoreRegisters;
   }
 
-  Register untagged_value = receiver_reg;
+  Register untagged_value = elements_reg;
   SmiUntag(untagged_value, value_reg);
   FloatingPointHelper::ConvertIntToDouble(this,
                                           untagged_value,
@@ -4798,38 +4798,46 @@ void MacroAssembler::JumpIfEitherSmi(Register reg1,
 }
 
 
-void MacroAssembler::AbortIfSmi(Register object) {
-  STATIC_ASSERT(kSmiTag == 0);
-  andi(at, object, kSmiTagMask);
-  Assert(ne, "Operand is a smi", at, Operand(zero_reg));
+void MacroAssembler::AssertNotSmi(Register object) {
+  if (emit_debug_code()) {
+    STATIC_ASSERT(kSmiTag == 0);
+    andi(at, object, kSmiTagMask);
+    Check(ne, "Operand is a smi", at, Operand(zero_reg));
+  }
 }
 
 
-void MacroAssembler::AbortIfNotSmi(Register object) {
-  STATIC_ASSERT(kSmiTag == 0);
-  andi(at, object, kSmiTagMask);
-  Assert(eq, "Operand is a smi", at, Operand(zero_reg));
+void MacroAssembler::AssertSmi(Register object) {
+  if (emit_debug_code()) {
+    STATIC_ASSERT(kSmiTag == 0);
+    andi(at, object, kSmiTagMask);
+    Check(eq, "Operand is a smi", at, Operand(zero_reg));
+  }
 }
 
 
-void MacroAssembler::AbortIfNotString(Register object) {
-  STATIC_ASSERT(kSmiTag == 0);
-  And(t0, object, Operand(kSmiTagMask));
-  Assert(ne, "Operand is not a string", t0, Operand(zero_reg));
-  push(object);
-  lw(object, FieldMemOperand(object, HeapObject::kMapOffset));
-  lbu(object, FieldMemOperand(object, Map::kInstanceTypeOffset));
-  Assert(lo, "Operand is not a string", object, Operand(FIRST_NONSTRING_TYPE));
-  pop(object);
+void MacroAssembler::AssertString(Register object) {
+  if (emit_debug_code()) {
+    STATIC_ASSERT(kSmiTag == 0);
+    And(t0, object, Operand(kSmiTagMask));
+    Check(ne, "Operand is a smi and not a string", t0, Operand(zero_reg));
+    push(object);
+    lw(object, FieldMemOperand(object, HeapObject::kMapOffset));
+    lbu(object, FieldMemOperand(object, Map::kInstanceTypeOffset));
+    Check(lo, "Operand is not a string", object, Operand(FIRST_NONSTRING_TYPE));
+    pop(object);
+  }
 }
 
 
-void MacroAssembler::AbortIfNotRootValue(Register src,
-                                         Heap::RootListIndex root_value_index,
-                                         const char* message) {
-  ASSERT(!src.is(at));
-  LoadRoot(at, root_value_index);
-  Assert(eq, message, src, Operand(at));
+void MacroAssembler::AssertRootValue(Register src,
+                                     Heap::RootListIndex root_value_index,
+                                     const char* message) {
+  if (emit_debug_code()) {
+    ASSERT(!src.is(at));
+    LoadRoot(at, root_value_index);
+    Check(eq, message, src, Operand(at));
+  }
 }
 
 
@@ -5294,22 +5302,14 @@ void MacroAssembler::EnsureNotWhite(
 
 
 void MacroAssembler::LoadInstanceDescriptors(Register map,
-                                             Register descriptors,
-                                             Register scratch) {
-  Register temp = descriptors;
-  lw(temp, FieldMemOperand(map, Map::kTransitionsOrBackPointerOffset));
+                                             Register descriptors) {
+  lw(descriptors, FieldMemOperand(map, Map::kDescriptorsOffset));
+}
 
-  Label ok, fail;
-  CheckMap(temp,
-           scratch,
-           isolate()->factory()->fixed_array_map(),
-           &fail,
-           DONT_DO_SMI_CHECK);
-  lw(descriptors, FieldMemOperand(temp, TransitionArray::kDescriptorsOffset));
-  jmp(&ok);
-  bind(&fail);
-  LoadRoot(descriptors, Heap::kEmptyDescriptorArrayRootIndex);
-  bind(&ok);
+
+void MacroAssembler::NumberOfOwnDescriptors(Register dst, Register map) {
+  lw(dst, FieldMemOperand(map, Map::kBitField3Offset));
+  DecodeField<Map::NumberOfOwnDescriptorsBits>(dst);
 }
 
 

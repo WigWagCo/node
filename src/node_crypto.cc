@@ -119,6 +119,22 @@ static void crypto_lock_cb(int mode, int n, const char* file, int line) {
 }
 
 
+Handle<Value> ThrowCryptoErrorHelper(unsigned long err, bool is_type_error) {
+  HandleScope scope;
+  char errmsg[128];
+  ERR_error_string_n(err, errmsg, sizeof(errmsg));
+  return is_type_error ? ThrowTypeError(errmsg) : ThrowError(errmsg);
+}
+
+
+Handle<Value> ThrowCryptoError(unsigned long err) {
+  return ThrowCryptoErrorHelper(err, false);
+}
+
+
+Handle<Value> ThrowCryptoTypeError(unsigned long err) {
+  return ThrowCryptoErrorHelper(err, true);
+}
 
 
 void SecureContext::Initialize(Handle<Object> target) {
@@ -347,9 +363,7 @@ Handle<Value> SecureContext::SetKey(const Arguments& args) {
       return ThrowException(Exception::Error(
           String::New("PEM_read_bio_PrivateKey")));
     }
-    char string[120];
-    ERR_error_string_n(err, string, sizeof string);
-    return ThrowException(Exception::Error(String::New(string)));
+    return ThrowCryptoError(err);
   }
 
   SSL_CTX_use_PrivateKey(sc->ctx_, key);
@@ -449,9 +463,7 @@ Handle<Value> SecureContext::SetCert(const Arguments& args) {
       return ThrowException(Exception::Error(
           String::New("SSL_CTX_use_certificate_chain")));
     }
-    char string[120];
-    ERR_error_string_n(err, string, sizeof string);
-    return ThrowException(Exception::Error(String::New(string)));
+    return ThrowCryptoError(err);
   }
 
   return True();
@@ -889,6 +901,16 @@ int Connection::HandleBIOError(BIO *bio, const char* func, int rv) {
 
 
 int Connection::HandleSSLError(const char* func, int rv, ZeroStatus zs) {
+  // Forcibly clear OpenSSL's error stack on return. This stops stale errors
+  // from popping up later in the lifecycle of the SSL connection where they
+  // would cause spurious failures. It's a rather blunt method, though.
+  // ERR_clear_error() isn't necessarily cheap either.
+  struct ClearErrorOnReturn {
+    ~ClearErrorOnReturn() { ERR_clear_error(); }
+  };
+  ClearErrorOnReturn clear_error_on_return;
+  (void) &clear_error_on_return;  // Silence unused variable warning.
+
   if (rv > 0) return rv;
   if ((rv == 0) && (zs == kZeroIsNotAnError)) return rv;
 
@@ -1691,8 +1713,11 @@ Handle<Value> Connection::IsSessionReused(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (ss->ssl_ == NULL) return False();
-  return SSL_session_reused(ss->ssl_) ? True() : False();
+  if (ss->ssl_ == NULL || SSL_session_reused(ss->ssl_) == false) {
+    return False();
+  }
+
+  return True();
 }
 
 
@@ -1751,8 +1776,11 @@ Handle<Value> Connection::IsInitFinished(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (ss->ssl_ == NULL) return False();
-  return SSL_is_init_finished(ss->ssl_) ? True() : False();
+  if (ss->ssl_ == NULL || SSL_is_init_finished(ss->ssl_) == false) {
+    return False();
+  }
+
+  return True();
 }
 
 
@@ -2088,9 +2116,7 @@ class Cipher : public ObjectWrap {
     if (!initialised_) return 0;
     *out_len=len+EVP_CIPHER_CTX_block_size(&ctx);
     *out= new unsigned char[*out_len];
-
-    EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
-    return 1;
+    return EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
   }
 
   int SetAutoPadding(bool auto_padding) {
@@ -2149,9 +2175,7 @@ class Cipher : public ObjectWrap {
 
     delete [] key_buf;
 
-    if (!r) {
-      return ThrowException(Exception::Error(String::New("CipherInit error")));
-    }
+    if (!r) return ThrowCryptoError(ERR_get_error());
 
     return args.This();
   }
@@ -2203,9 +2227,7 @@ class Cipher : public ObjectWrap {
     delete [] key_buf;
     delete [] iv_buf;
 
-    if (!r) {
-      return ThrowException(Exception::Error(String::New("CipherInitIv error")));
-    }
+    if (!r) return ThrowCryptoError(ERR_get_error());
 
     return args.This();
   }
@@ -2224,10 +2246,9 @@ class Cipher : public ObjectWrap {
 
     r = cipher->CipherUpdate(buffer_data, buffer_length, &out, &out_len);
 
-    if (!r) {
+    if (r == 0) {
       delete [] out;
-      Local<Value> exception = Exception::TypeError(String::New("DecipherUpdate fail"));
-      return ThrowException(exception);
+      return ThrowCryptoTypeError(ERR_get_error());
     }
 
     Local<Value> outString;
@@ -2258,18 +2279,10 @@ class Cipher : public ObjectWrap {
 
     int r = cipher->CipherFinal(&out_value, &out_len);
 
-    assert(out_value != NULL);
-    assert(out_len != -1 || r == 0);
-
-    if (out_len == 0 || r == 0) {
-      // out_value always get allocated.
+    if (out_len <= 0 || r == 0) {
       delete[] out_value;
       out_value = NULL;
-      if (r == 0) {
-        Local<Value> exception = Exception::TypeError(
-          String::New("CipherFinal fail"));
-        return ThrowException(exception);
-      }
+      if (r == 0) return ThrowCryptoTypeError(ERR_get_error());
     }
 
     outString = Encode(out_value, out_len, BUFFER);
@@ -2393,8 +2406,7 @@ class Decipher : public ObjectWrap {
     *out_len=len+EVP_CIPHER_CTX_block_size(&ctx);
     *out= new unsigned char[*out_len];
 
-    EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
-    return 1;
+    return EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
   }
 
   int SetAutoPadding(bool auto_padding) {
@@ -2544,8 +2556,7 @@ class Decipher : public ObjectWrap {
 
     if (!r) {
       delete [] out;
-      Local<Value> exception = Exception::TypeError(String::New("DecipherUpdate fail"));
-      return ThrowException(exception);
+      return ThrowCryptoTypeError(ERR_get_error());
     }
 
     Local<Value> outString;
@@ -2578,17 +2589,10 @@ class Decipher : public ObjectWrap {
 
     int r = cipher->DecipherFinal(&out_value, &out_len);
 
-    assert(out_value != NULL);
-    assert(out_len != -1);
-
-    if (out_len == 0 || r == 0) {
+    if (out_len <= 0 || r == 0) {
       delete [] out_value; // allocated even if out_len == 0
       out_value = NULL;
-      if (r == 0) {
-        Local<Value> exception = Exception::TypeError(
-          String::New("DecipherFinal fail"));
-        return ThrowException(exception);
-      }
+      if (r == 0) return ThrowCryptoTypeError(ERR_get_error());
     }
 
     outString = Encode(out_value, out_len, BUFFER);
@@ -2639,7 +2643,11 @@ class Hmac : public ObjectWrap {
       return false;
     }
     HMAC_CTX_init(&ctx);
-    HMAC_Init(&ctx, key, key_len, md);
+    if (key_len == 0) {
+      HMAC_Init(&ctx, "", 0, md);
+    } else {
+      HMAC_Init(&ctx, key, key_len, md);
+    }
     initialised_ = true;
     return true;
 
@@ -3728,9 +3736,9 @@ void EIO_PBKDF2After(pbkdf2_req* req, Local<Value> argv[2]) {
 }
 
 
-void EIO_PBKDF2After(uv_work_t* work_req) {
+void EIO_PBKDF2After(uv_work_t* work_req, int status) {
+  assert(status == 0);
   pbkdf2_req* req = container_of(work_req, pbkdf2_req, work_req);
-
   HandleScope scope;
   Local<Value> argv[2];
   Persistent<Object> obj = req->obj;
@@ -3902,16 +3910,15 @@ void RandomBytesCheck(RandomBytesRequest* req, Local<Value> argv[2]) {
 }
 
 
-void RandomBytesAfter(uv_work_t* work_req) {
+void RandomBytesAfter(uv_work_t* work_req, int status) {
+  assert(status == 0);
   RandomBytesRequest* req = container_of(work_req,
                                          RandomBytesRequest,
                                          work_req_);
-
   HandleScope scope;
   Local<Value> argv[2];
   RandomBytesCheck(req, argv);
   MakeCallback(req->obj_, "ondone", ARRAY_SIZE(argv), argv);
-
   delete req;
 }
 

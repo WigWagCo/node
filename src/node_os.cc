@@ -136,7 +136,8 @@ static Handle<Value> GetCPUInfo(const Arguments& args) {
 
     Local<Object> cpu_info = Object::New();
     cpu_info->Set(String::New("model"), String::New(cpu_infos[i].model));
-    cpu_info->Set(String::New("speed"), Integer::New(cpu_infos[i].speed));
+    cpu_info->Set(String::New("speed"),
+                  Integer::New(cpu_infos[i].speed));
     cpu_info->Set(String::New("times"), times_info);
     (*cpus)->Set(i,cpu_info);
   }
@@ -234,8 +235,10 @@ static Handle<Value> GetInterfaceAddresses(const Arguments& args) {
     o = Object::New();
     o->Set(String::New("address"), String::New(ip));
     o->Set(String::New("family"), family);
-    o->Set(String::New("internal"), interfaces[i].is_internal ?
-	                                  True() : False());
+
+    const bool internal = interfaces[i].is_internal;
+    o->Set(String::New("internal"),
+           internal ? True() : False());
 
     ifarr->Set(ifarr->Length(), o);
   }

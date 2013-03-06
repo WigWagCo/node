@@ -404,6 +404,10 @@ THREADED_TEST(ScriptUsingStringResource) {
     CHECK(source->IsExternal());
     CHECK_EQ(resource,
              static_cast<TestResource*>(source->GetExternalStringResource()));
+    String::Encoding encoding = String::UNKNOWN_ENCODING;
+    CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+             source->GetExternalStringResourceBase(&encoding));
+    CHECK_EQ(String::TWO_BYTE_ENCODING, encoding);
     HEAP->CollectAllGarbage(i::Heap::kNoGCFlags);
     CHECK_EQ(0, dispose_count);
   }
@@ -419,9 +423,16 @@ THREADED_TEST(ScriptUsingAsciiStringResource) {
   {
     v8::HandleScope scope;
     LocalContext env;
-    Local<String> source =
-        String::NewExternal(new TestAsciiResource(i::StrDup(c_source),
-                                                  &dispose_count));
+    TestAsciiResource* resource = new TestAsciiResource(i::StrDup(c_source),
+                                                        &dispose_count);
+    Local<String> source = String::NewExternal(resource);
+    CHECK(source->IsExternalAscii());
+    CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+             source->GetExternalAsciiStringResource());
+    String::Encoding encoding = String::UNKNOWN_ENCODING;
+    CHECK_EQ(static_cast<const String::ExternalStringResourceBase*>(resource),
+             source->GetExternalStringResourceBase(&encoding));
+    CHECK_EQ(String::ASCII_ENCODING, encoding);
     Local<Script> script = Script::Compile(source);
     Local<Value> value = script->Run();
     CHECK(value->IsNumber());
@@ -445,6 +456,11 @@ THREADED_TEST(ScriptMakingExternalString) {
     // Trigger GCs so that the newly allocated string moves to old gen.
     HEAP->CollectGarbage(i::NEW_SPACE);  // in survivor space now
     HEAP->CollectGarbage(i::NEW_SPACE);  // in old gen now
+    CHECK_EQ(source->IsExternal(), false);
+    CHECK_EQ(source->IsExternalAscii(), false);
+    String::Encoding encoding = String::UNKNOWN_ENCODING;
+    CHECK_EQ(NULL, source->GetExternalStringResourceBase(&encoding));
+    CHECK_EQ(String::ASCII_ENCODING, encoding);
     bool success = source->MakeExternal(new TestResource(two_byte_source,
                                                          &dispose_count));
     CHECK(success);
@@ -953,8 +969,13 @@ THREADED_TEST(FindInstanceInPrototypeChain) {
 THREADED_TEST(TinyInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   int32_t value = 239;
   Local<v8::Integer> value_obj = v8::Integer::New(value);
+  CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+  value_obj = v8::Integer::New(value, isolate);
   CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
 }
 
@@ -962,12 +983,18 @@ THREADED_TEST(TinyInteger) {
 THREADED_TEST(BigSmiInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   int32_t value = i::Smi::kMaxValue;
   // We cannot add one to a Smi::kMaxValue without wrapping.
   if (i::kSmiValueSize < 32) {
     CHECK(i::Smi::IsValid(value));
     CHECK(!i::Smi::IsValid(value + 1));
+
     Local<v8::Integer> value_obj = v8::Integer::New(value);
+    CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+    value_obj = v8::Integer::New(value, isolate);
     CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
   }
 }
@@ -976,6 +1003,8 @@ THREADED_TEST(BigSmiInteger) {
 THREADED_TEST(BigInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   // We cannot add one to a Smi::kMaxValue without wrapping.
   if (i::kSmiValueSize < 32) {
     // The casts allow this to compile, even if Smi::kMaxValue is 2^31-1.
@@ -984,7 +1013,11 @@ THREADED_TEST(BigInteger) {
         static_cast<int32_t>(static_cast<uint32_t>(i::Smi::kMaxValue) + 1);
     CHECK(value > i::Smi::kMaxValue);
     CHECK(!i::Smi::IsValid(value));
+
     Local<v8::Integer> value_obj = v8::Integer::New(value);
+    CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+    value_obj = v8::Integer::New(value, isolate);
     CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
   }
 }
@@ -993,8 +1026,14 @@ THREADED_TEST(BigInteger) {
 THREADED_TEST(TinyUnsignedInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   uint32_t value = 239;
+
   Local<v8::Integer> value_obj = v8::Integer::NewFromUnsigned(value);
+  CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+  value_obj = v8::Integer::NewFromUnsigned(value, isolate);
   CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
 }
 
@@ -1002,10 +1041,16 @@ THREADED_TEST(TinyUnsignedInteger) {
 THREADED_TEST(BigUnsignedSmiInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   uint32_t value = static_cast<uint32_t>(i::Smi::kMaxValue);
   CHECK(i::Smi::IsValid(value));
   CHECK(!i::Smi::IsValid(value + 1));
+
   Local<v8::Integer> value_obj = v8::Integer::NewFromUnsigned(value);
+  CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+  value_obj = v8::Integer::NewFromUnsigned(value, isolate);
   CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
 }
 
@@ -1013,10 +1058,16 @@ THREADED_TEST(BigUnsignedSmiInteger) {
 THREADED_TEST(BigUnsignedInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   uint32_t value = static_cast<uint32_t>(i::Smi::kMaxValue) + 1;
   CHECK(value > static_cast<uint32_t>(i::Smi::kMaxValue));
   CHECK(!i::Smi::IsValid(value));
+
   Local<v8::Integer> value_obj = v8::Integer::NewFromUnsigned(value);
+  CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+  value_obj = v8::Integer::NewFromUnsigned(value, isolate);
   CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
 }
 
@@ -1024,10 +1075,16 @@ THREADED_TEST(BigUnsignedInteger) {
 THREADED_TEST(OutOfSignedRangeUnsignedInteger) {
   v8::HandleScope scope;
   LocalContext env;
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+
   uint32_t INT32_MAX_AS_UINT = (1U << 31) - 1;
   uint32_t value = INT32_MAX_AS_UINT + 1;
   CHECK(value > INT32_MAX_AS_UINT);  // No overflow.
+
   Local<v8::Integer> value_obj = v8::Integer::NewFromUnsigned(value);
+  CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
+
+  value_obj = v8::Integer::NewFromUnsigned(value, isolate);
   CHECK_EQ(static_cast<int64_t>(value), value_obj->Value());
 }
 
@@ -2398,20 +2455,19 @@ THREADED_TEST(ScriptException) {
 bool message_received;
 
 
-static void check_message(v8::Handle<v8::Message> message,
-                          v8::Handle<Value> data) {
-  CHECK_EQ(5.76, data->NumberValue());
+static void check_message_0(v8::Handle<v8::Message> message,
+                            v8::Handle<Value> data) {
   CHECK_EQ(6.75, message->GetScriptResourceName()->NumberValue());
   CHECK_EQ(7.56, message->GetScriptData()->NumberValue());
   message_received = true;
 }
 
 
-THREADED_TEST(MessageHandlerData) {
+THREADED_TEST(MessageHandler0) {
   message_received = false;
   v8::HandleScope scope;
   CHECK(!message_received);
-  v8::V8::AddMessageListener(check_message, v8_num(5.76));
+  v8::V8::AddMessageListener(check_message_0);
   LocalContext context;
   v8::ScriptOrigin origin =
       v8::ScriptOrigin(v8_str("6.75"));
@@ -2421,7 +2477,56 @@ THREADED_TEST(MessageHandlerData) {
   script->Run();
   CHECK(message_received);
   // clear out the message listener
-  v8::V8::RemoveMessageListeners(check_message);
+  v8::V8::RemoveMessageListeners(check_message_0);
+}
+
+
+static void check_message_1(v8::Handle<v8::Message> message,
+                            v8::Handle<Value> data) {
+  CHECK(data->IsNumber());
+  CHECK_EQ(1337, data->Int32Value());
+  message_received = true;
+}
+
+
+TEST(MessageHandler1) {
+  message_received = false;
+  v8::HandleScope scope;
+  CHECK(!message_received);
+  v8::V8::AddMessageListener(check_message_1);
+  LocalContext context;
+  CompileRun("throw 1337;");
+  CHECK(message_received);
+  // clear out the message listener
+  v8::V8::RemoveMessageListeners(check_message_1);
+}
+
+
+static void check_message_2(v8::Handle<v8::Message> message,
+                            v8::Handle<Value> data) {
+  LocalContext context;
+  CHECK(data->IsObject());
+  v8::Local<v8::Value> hidden_property =
+      v8::Object::Cast(*data)->GetHiddenValue(v8_str("hidden key"));
+  CHECK(v8_str("hidden value")->Equals(hidden_property));
+  message_received = true;
+}
+
+
+TEST(MessageHandler2) {
+  message_received = false;
+  v8::HandleScope scope;
+  CHECK(!message_received);
+  v8::V8::AddMessageListener(check_message_2);
+  LocalContext context;
+  v8::Local<v8::Value> error = v8::Exception::Error(v8_str("custom error"));
+  v8::Object::Cast(*error)->SetHiddenValue(v8_str("hidden key"),
+                                           v8_str("hidden value"));
+  context->Global()->Set(v8_str("error"), error);
+  CompileRun("throw error;");
+  CHECK(message_received);
+  // clear out the message listener
+  v8::V8::RemoveMessageListeners(check_message_2);
 }
 
 
@@ -3062,7 +3167,7 @@ TEST(APIThrowMessageOverwrittenToString) {
              "Number.prototype.toString = function() { return 'Whoops'; };"
              "ReferenceError.prototype.toString = Object.prototype.toString;");
   CompileRun("asdf;");
-  v8::V8::RemoveMessageListeners(check_message);
+  v8::V8::RemoveMessageListeners(check_reference_error_message);
 }
 
 
@@ -3109,7 +3214,7 @@ TEST(APIThrowMessage) {
   LocalContext context(0, templ);
   CompileRun("ThrowFromC();");
   CHECK(message_received);
-  v8::V8::RemoveMessageListeners(check_message);
+  v8::V8::RemoveMessageListeners(receive_message);
 }
 
 
@@ -3127,7 +3232,7 @@ TEST(APIThrowMessageAndVerboseTryCatch) {
   CHECK(try_catch.HasCaught());
   CHECK(result.IsEmpty());
   CHECK(message_received);
-  v8::V8::RemoveMessageListeners(check_message);
+  v8::V8::RemoveMessageListeners(receive_message);
 }
 
 
@@ -5092,7 +5197,6 @@ TEST(RegexpOutOfMemory) {
 
 static void MissingScriptInfoMessageListener(v8::Handle<v8::Message> message,
                                              v8::Handle<Value> data) {
-  CHECK_EQ(v8::Undefined(), data);
   CHECK(message->GetScriptResourceName()->IsUndefined());
   CHECK_EQ(v8::Undefined(), message->GetScriptResourceName());
   message->GetLineNumber();
@@ -5213,7 +5317,9 @@ THREADED_TEST(IndependentWeakHandle) {
 
   bool object_a_disposed = false;
   object_a.MakeWeak(&object_a_disposed, &DisposeAndSetFlag);
+  CHECK(!object_a.IsIndependent());
   object_a.MarkIndependent();
+  CHECK(object_a.IsIndependent());
   HEAP->PerformScavenge();
   CHECK(object_a_disposed);
 }
@@ -10824,18 +10930,21 @@ TEST(DontLeakGlobalObjects) {
     { v8::HandleScope scope;
       LocalContext context;
     }
+    v8::V8::ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope;
       LocalContext context;
       v8_compile("Date")->Run();
     }
+    v8::V8::ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope;
       LocalContext context;
       v8_compile("/aaa/")->Run();
     }
+    v8::V8::ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
 
     { v8::HandleScope scope;
@@ -10844,6 +10953,7 @@ TEST(DontLeakGlobalObjects) {
       LocalContext context(&extensions);
       v8_compile("gc();")->Run();
     }
+    v8::V8::ContextDisposedNotification();
     CheckSurvivingGlobalObjectsCount(0);
   }
 }
@@ -14436,6 +14546,89 @@ TEST(SourceURLInStackTrace) {
 }
 
 
+v8::Handle<Value> AnalyzeStackOfInlineScriptWithSourceURL(
+    const v8::Arguments& args) {
+  v8::HandleScope scope;
+  v8::Handle<v8::StackTrace> stackTrace =
+      v8::StackTrace::CurrentStackTrace(10, v8::StackTrace::kDetailed);
+  CHECK_EQ(4, stackTrace->GetFrameCount());
+  v8::Handle<v8::String> url = v8_str("url");
+  for (int i = 0; i < 3; i++) {
+    v8::Handle<v8::String> name =
+        stackTrace->GetFrame(i)->GetScriptNameOrSourceURL();
+    CHECK(!name.IsEmpty());
+    CHECK_EQ(url, name);
+  }
+  return v8::Undefined();
+}
+
+
+TEST(InlineScriptWithSourceURLInStackTrace) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  templ->Set(v8_str("AnalyzeStackOfInlineScriptWithSourceURL"),
+             v8::FunctionTemplate::New(
+                 AnalyzeStackOfInlineScriptWithSourceURL));
+  LocalContext context(0, templ);
+
+  const char *source =
+    "function outer() {\n"
+    "function bar() {\n"
+    "  AnalyzeStackOfInlineScriptWithSourceURL();\n"
+    "}\n"
+    "function foo() {\n"
+    "\n"
+    "  bar();\n"
+    "}\n"
+    "foo();\n"
+    "}\n"
+    "outer()\n"
+    "//@ sourceURL=source_url";
+  CHECK(CompileRunWithOrigin(source, "url", 0, 1)->IsUndefined());
+}
+
+
+v8::Handle<Value> AnalyzeStackOfDynamicScriptWithSourceURL(
+    const v8::Arguments& args) {
+  v8::HandleScope scope;
+  v8::Handle<v8::StackTrace> stackTrace =
+      v8::StackTrace::CurrentStackTrace(10, v8::StackTrace::kDetailed);
+  CHECK_EQ(4, stackTrace->GetFrameCount());
+  v8::Handle<v8::String> url = v8_str("source_url");
+  for (int i = 0; i < 3; i++) {
+    v8::Handle<v8::String> name =
+        stackTrace->GetFrame(i)->GetScriptNameOrSourceURL();
+    CHECK(!name.IsEmpty());
+    CHECK_EQ(url, name);
+  }
+  return v8::Undefined();
+}
+
+
+TEST(DynamicWithSourceURLInStackTrace) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  templ->Set(v8_str("AnalyzeStackOfDynamicScriptWithSourceURL"),
+             v8::FunctionTemplate::New(
+                 AnalyzeStackOfDynamicScriptWithSourceURL));
+  LocalContext context(0, templ);
+
+  const char *source =
+    "function outer() {\n"
+    "function bar() {\n"
+    "  AnalyzeStackOfDynamicScriptWithSourceURL();\n"
+    "}\n"
+    "function foo() {\n"
+    "\n"
+    "  bar();\n"
+    "}\n"
+    "foo();\n"
+    "}\n"
+    "outer()\n"
+    "//@ sourceURL=source_url";
+  CHECK(CompileRunWithOrigin(source, "url", 0, 0)->IsUndefined());
+}
+
 static void CreateGarbageInOldSpace() {
   v8::HandleScope scope;
   i::AlwaysAllocateScope always_allocate;
@@ -14907,6 +15100,7 @@ TEST(Regress528) {
     context->Exit();
   }
   context.Dispose();
+  v8::V8::ContextDisposedNotification();
   for (gc_count = 1; gc_count < 10; gc_count++) {
     other_context->Enter();
     CompileRun(source_exception);
@@ -16073,6 +16267,45 @@ TEST(DontDeleteCellLoadICAPI) {
 }
 
 
+class Visitor42 : public v8::PersistentHandleVisitor {
+ public:
+  explicit Visitor42(v8::Persistent<v8::Object> object)
+      : counter_(0), object_(object) { }
+
+  virtual void VisitPersistentHandle(Persistent<Value> value,
+                                     uint16_t class_id) {
+    if (class_id == 42) {
+      CHECK(value->IsObject());
+      v8::Persistent<v8::Object> visited =
+          v8::Persistent<v8::Object>::Cast(value);
+      CHECK_EQ(42, visited.WrapperClassId());
+      CHECK_EQ(object_, visited);
+      ++counter_;
+    }
+  }
+
+  int counter_;
+  v8::Persistent<v8::Object> object_;
+};
+
+
+TEST(PersistentHandleVisitor) {
+  v8::HandleScope scope;
+  LocalContext context;
+  v8::Persistent<v8::Object> object =
+      v8::Persistent<v8::Object>::New(v8::Object::New());
+  CHECK_EQ(0, object.WrapperClassId());
+  object.SetWrapperClassId(42);
+  CHECK_EQ(42, object.WrapperClassId());
+
+  Visitor42 visitor(object);
+  v8::V8::VisitHandlesWithClassIds(&visitor);
+  CHECK_EQ(1, visitor.counter_);
+
+  object.Dispose();
+}
+
+
 TEST(RegExp) {
   v8::HandleScope scope;
   LocalContext context;
@@ -16505,6 +16738,24 @@ THREADED_TEST(AllowCodeGenFromStrings) {
   V8::SetAllowCodeGenerationFromStringsCallback(&CodeGenerationDisallowed);
   CHECK(!context->IsCodeGenerationFromStringsAllowed());
   CheckCodeGenerationDisallowed();
+}
+
+
+TEST(SetErrorMessageForCodeGenFromStrings) {
+  v8::HandleScope scope;
+  LocalContext context;
+  TryCatch try_catch;
+
+  Handle<String> message = v8_str("Message") ;
+  Handle<String> expected_message = v8_str("Uncaught EvalError: Message");
+  V8::SetAllowCodeGenerationFromStringsCallback(&CodeGenerationDisallowed);
+  context->AllowCodeGenerationFromStrings(false);
+  context->SetErrorMessageForCodeGenerationFromStrings(message);
+  Handle<Value> result = CompileRun("eval('42')");
+  CHECK(result.IsEmpty());
+  CHECK(try_catch.HasCaught());
+  Handle<String> actual_message = try_catch.Message()->Get();
+  CHECK(expected_message->Equals(actual_message));
 }
 
 
@@ -17442,6 +17693,16 @@ THREADED_TEST(Regress149912) {
   AddInterceptor(templ, EmptyInterceptorGetter, EmptyInterceptorSetter);
   context->Global()->Set(v8_str("Bug"), templ->GetFunction());
   CompileRun("Number.prototype.__proto__ = new Bug; var x = 0; x.foo();");
+}
+
+
+THREADED_TEST(Regress157124) {
+  v8::HandleScope scope;
+  LocalContext context;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  Local<Object> obj = templ->NewInstance();
+  obj->GetIdentityHash();
+  obj->DeleteHiddenValue(v8_str("Bug"));
 }
 
 

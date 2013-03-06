@@ -148,6 +148,9 @@ bool OS::ArmCpuHasFeature(CpuFeature feature) {
     case ARMv7:
       search_string = "ARMv7";
       break;
+    case SUDIV:
+      search_string = "idiva";
+      break;
     default:
       UNREACHABLE();
   }
@@ -168,6 +171,24 @@ bool OS::ArmCpuHasFeature(CpuFeature feature) {
   }
 
   return false;
+}
+
+
+CpuImplementer OS::GetCpuImplementer() {
+  static bool use_cached_value = false;
+  static CpuImplementer cached_value = UNKNOWN_IMPLEMENTER;
+  if (use_cached_value) {
+    return cached_value;
+  }
+  if (CPUInfoContainsString("CPU implementer\t: 0x41")) {
+    cached_value = ARM_IMPLEMENTER;
+  } else if (CPUInfoContainsString("CPU implementer\t: 0x51")) {
+    cached_value = QUALCOMM_IMPLEMENTER;
+  } else {
+    cached_value = UNKNOWN_IMPLEMENTER;
+  }
+  use_cached_value = true;
+  return cached_value;
 }
 
 

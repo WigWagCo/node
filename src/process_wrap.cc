@@ -250,7 +250,8 @@ class ProcessWrap : public HandleWrap {
     else {
       wrap->SetHandle((uv_handle_t*)&wrap->process_);
       assert(wrap->process_.data == wrap);
-      wrap->object_->Set(String::New("pid"), Integer::New(wrap->process_.pid));
+      wrap->object_->Set(String::New("pid"),
+                         Integer::New(wrap->process_.pid));
     }
 
     if (options.args) {

@@ -31,24 +31,22 @@
 # define inline __inline
 #endif
 
-#undef HAVE_PORTS_FS
-
-#if __linux__
-# include "linux/syscalls.h"
+#if defined(__linux__)
+# include "linux-syscalls.h"
 #endif /* __linux__ */
 
 #if defined(__sun)
 # include <sys/port.h>
 # include <port.h>
-# ifdef PORT_SOURCE_FILE
-#  define HAVE_PORTS_FS 1
-# endif
 # define futimes(fd, tv) futimesat(fd, (void*)0, tv)
 #endif /* __sun */
 
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
 # include <CoreServices/CoreServices.h>
 #endif
+
+#define ACCESS_ONCE(type, var)                                                \
+  (*(volatile type*) &(var))
 
 #define UNREACHABLE()                                                         \
   do {                                                                        \
@@ -110,29 +108,27 @@ enum {
   UV_TCP_SINGLE_ACCEPT = 0x400  /* Only accept() when idle. */
 };
 
-__attribute__((unused))
-static void uv__req_init(uv_loop_t* loop, uv_req_t* req, uv_req_type type) {
-  req->type = type;
-  uv__req_register(loop, req);
-}
-#define uv__req_init(loop, req, type) \
-  uv__req_init((loop), (uv_req_t*)(req), (type))
-
 /* core */
 void uv__handle_init(uv_loop_t* loop, uv_handle_t* handle, uv_handle_type type);
 int uv__nonblock(int fd, int set);
 int uv__cloexec(int fd, int set);
 int uv__socket(int domain, int type, int protocol);
 int uv__dup(int fd);
-int uv_async_stop(uv_async_t* handle);
 void uv__make_close_pending(uv_handle_t* handle);
 
 void uv__io_init(uv__io_t* w, uv__io_cb cb, int fd);
 void uv__io_start(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 void uv__io_stop(uv_loop_t* loop, uv__io_t* w, unsigned int events);
+void uv__io_close(uv_loop_t* loop, uv__io_t* w);
 void uv__io_feed(uv_loop_t* loop, uv__io_t* w);
 int uv__io_active(const uv__io_t* w, unsigned int events);
 void uv__io_poll(uv_loop_t* loop, int timeout); /* in milliseconds or -1 */
+
+/* async */
+void uv__async_send(struct uv__async* wa);
+void uv__async_init(struct uv__async* wa);
+int uv__async_start(uv_loop_t* loop, struct uv__async* wa, uv__async_cb cb);
+void uv__async_stop(uv_loop_t* loop, struct uv__async* wa);
 
 /* loop */
 int uv__loop_init(uv_loop_t* loop, int default_loop);
@@ -163,21 +159,22 @@ int uv_pipe_listen(uv_pipe_t* handle, int backlog, uv_connection_cb cb);
 
 /* timer */
 void uv__run_timers(uv_loop_t* loop);
-unsigned int uv__next_timeout(uv_loop_t* loop);
+int uv__next_timeout(const uv_loop_t* loop);
 
 /* signal */
 void uv__signal_close(uv_signal_t* handle);
 void uv__signal_global_once_init(void);
-void uv__signal_loop_cleanup();
+void uv__signal_loop_cleanup(uv_loop_t* loop);
 
 /* thread pool */
 void uv__work_submit(uv_loop_t* loop,
                      struct uv__work *w,
                      void (*work)(struct uv__work *w),
-                     void (*done)(struct uv__work *w));
+                     void (*done)(struct uv__work *w, int status));
 void uv__work_done(uv_async_t* handle, int status);
 
 /* platform specific */
+uint64_t uv__hrtime(void);
 int uv__kqueue_init(uv_loop_t* loop);
 int uv__platform_loop_init(uv_loop_t* loop, int default_loop);
 void uv__platform_loop_delete(uv_loop_t* loop);
@@ -196,6 +193,13 @@ void uv__tcp_close(uv_tcp_t* handle);
 void uv__timer_close(uv_timer_t* handle);
 void uv__udp_close(uv_udp_t* handle);
 void uv__udp_finish_close(uv_udp_t* handle);
+
+#if defined(__APPLE__)
+int uv___stream_fd(uv_stream_t* handle);
+#define uv__stream_fd(handle) (uv___stream_fd((uv_stream_t*) (handle)))
+#else
+#define uv__stream_fd(handle) ((handle)->io_watcher.fd)
+#endif /* defined(__APPLE__) */
 
 #ifdef UV__O_NONBLOCK
 # define UV__F_NONBLOCK UV__O_NONBLOCK
@@ -233,5 +237,18 @@ static const int kFSEventStreamEventFlagItemIsSymlink = 0x00040000;
 #endif /* __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 1070 */
 
 #endif /* defined(__APPLE__) */
+
+__attribute__((unused))
+static void uv__req_init(uv_loop_t* loop, uv_req_t* req, uv_req_type type) {
+  req->type = type;
+  uv__req_register(loop, req);
+}
+#define uv__req_init(loop, req, type) \
+  uv__req_init((loop), (uv_req_t*)(req), (type))
+
+__attribute__((unused))
+static void uv__update_time(uv_loop_t* loop) {
+  loop->time = uv__hrtime() / 1000000;
+}
 
 #endif /* UV_UNIX_INTERNAL_H_ */
