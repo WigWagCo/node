@@ -25,7 +25,9 @@ Example:
 ## path.join([path1], [path2], [...])
 
 Join all arguments together and normalize the resulting path.
-Non-string arguments are ignored.
+
+Arguments must be strings.  In v0.8, non-string arguments were
+silently ignored.  In v0.10 and up, an exception is thrown.
 
 Example:
 
@@ -34,8 +36,8 @@ Example:
     '/foo/bar/baz/asdf'
 
     path.join('foo', {}, 'bar')
-    // returns
-    'foo/bar'
+    // throws exception
+    TypeError: Arguments to path.join must be strings
 
 ## path.resolve([from ...], to)
 
@@ -75,6 +77,25 @@ Examples:
     path.resolve('wwwroot', 'static_files/png/', '../gif/image.gif')
     // if currently in /home/myself/node, it returns
     '/home/myself/node/wwwroot/static_files/gif/image.gif'
+
+## path.isAbsolute(path)
+
+Determines whether `path` is an absolute path. An absolute path will always
+resolve to the same location, regardless of the working directory.
+
+Posix examples:
+
+    path.isAbsolute('/foo/bar') // true
+    path.isAbsolute('/baz/..')  // true
+    path.isAbsolute('qux/')     // false
+    path.isAbsolute('.')        // false
+
+Windows examples:
+
+    path.isAbsolute('//server')  // true
+    path.isAbsolute('C:/foo/..') // true
+    path.isAbsolute('bar\\baz')   // false
+    path.isAbsolute('.')         // false
 
 ## path.relative(from, to)
 

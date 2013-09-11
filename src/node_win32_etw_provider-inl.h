@@ -19,15 +19,13 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#ifndef SRC_ETW_INL_H_
-#define SRC_ETW_INL_H_
+#ifndef SRC_NODE_WIN32_ETW_PROVIDER_INL_H_
+#define SRC_NODE_WIN32_ETW_PROVIDER_INL_H_
 
 #include "node_win32_etw_provider.h"
 #include "node_etw_provider.h"
 
 namespace node {
-
-using namespace v8;
 
 // From node_win32_etw_provider.cc
 extern REGHANDLE node_provider;
@@ -37,7 +35,7 @@ extern int events_enabled;
 #define ETW_WRITE_STRING_DATA(data_descriptor, data)                          \
   EventDataDescCreate(data_descriptor,                                        \
                       data,                                                   \
-                      (strlen(data) + 1) * sizeof(char));
+                      (strlen(data) + 1) * sizeof(*data));
 
 #define ETW_WRITE_INT32_DATA(data_descriptor, data)  \
   EventDataDescCreate(data_descriptor, data, sizeof(int32_t));
@@ -106,13 +104,15 @@ extern int events_enabled;
 #define ETW_WRITE_EVENT(eventDescriptor, dataDescriptors)                     \
   DWORD status = event_write(node_provider,                                   \
                              &eventDescriptor,                                \
-                             sizeof(dataDescriptors)/sizeof(*dataDescriptors),\
+                             sizeof(dataDescriptors) /                        \
+                                 sizeof(*dataDescriptors),                    \
                              dataDescriptors);                                \
   assert(status == ERROR_SUCCESS);
 
 
 void NODE_HTTP_SERVER_REQUEST(node_dtrace_http_server_request_t* req,
-    node_dtrace_connection_t* conn) {
+    node_dtrace_connection_t* conn, const char *remote, int port,
+    const char *method, const char *url, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[7];
   ETW_WRITE_HTTP_SERVER_REQUEST(descriptors, req);
   ETW_WRITE_NET_CONNECTION(descriptors + 3, conn);
@@ -120,7 +120,8 @@ void NODE_HTTP_SERVER_REQUEST(node_dtrace_http_server_request_t* req,
 }
 
 
-void NODE_HTTP_SERVER_RESPONSE(node_dtrace_connection_t* conn) {
+void NODE_HTTP_SERVER_RESPONSE(node_dtrace_connection_t* conn,
+    const char *remote, int port, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[4];
   ETW_WRITE_NET_CONNECTION(descriptors, conn);
   ETW_WRITE_EVENT(NODE_HTTP_SERVER_RESPONSE_EVENT, descriptors);
@@ -128,7 +129,8 @@ void NODE_HTTP_SERVER_RESPONSE(node_dtrace_connection_t* conn) {
 
 
 void NODE_HTTP_CLIENT_REQUEST(node_dtrace_http_client_request_t* req,
-    node_dtrace_connection_t* conn) {
+    node_dtrace_connection_t* conn, const char *remote, int port,
+    const char *method, const char *url, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[6];
   ETW_WRITE_HTTP_CLIENT_REQUEST(descriptors, req);
   ETW_WRITE_NET_CONNECTION(descriptors + 2, conn);
@@ -136,28 +138,31 @@ void NODE_HTTP_CLIENT_REQUEST(node_dtrace_http_client_request_t* req,
 }
 
 
-void NODE_HTTP_CLIENT_RESPONSE(node_dtrace_connection_t* conn) {
+void NODE_HTTP_CLIENT_RESPONSE(node_dtrace_connection_t* conn,
+    const char *remote, int port, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[4];
   ETW_WRITE_NET_CONNECTION(descriptors, conn);
   ETW_WRITE_EVENT(NODE_HTTP_CLIENT_RESPONSE_EVENT, descriptors);
 }
 
 
-void NODE_NET_SERVER_CONNECTION(node_dtrace_connection_t* conn) {
+void NODE_NET_SERVER_CONNECTION(node_dtrace_connection_t* conn,
+    const char *remote, int port, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[4];
   ETW_WRITE_NET_CONNECTION(descriptors, conn);
   ETW_WRITE_EVENT(NODE_NET_SERVER_CONNECTION_EVENT, descriptors);
 }
 
 
-void NODE_NET_STREAM_END(node_dtrace_connection_t* conn) {
+void NODE_NET_STREAM_END(node_dtrace_connection_t* conn,
+    const char *remote, int port, int fd) {
   EVENT_DATA_DESCRIPTOR descriptors[4];
   ETW_WRITE_NET_CONNECTION(descriptors, conn);
   ETW_WRITE_EVENT(NODE_NET_STREAM_END_EVENT, descriptors);
 }
 
 
-void NODE_GC_START(GCType type, GCCallbackFlags flags) {
+void NODE_GC_START(v8::GCType type, v8::GCCallbackFlags flags) {
   if (events_enabled > 0) {
     EVENT_DATA_DESCRIPTOR descriptors[2];
     ETW_WRITE_GC(descriptors, type, flags);
@@ -166,7 +171,7 @@ void NODE_GC_START(GCType type, GCCallbackFlags flags) {
 }
 
 
-void NODE_GC_DONE(GCType type, GCCallbackFlags flags) {
+void NODE_GC_DONE(v8::GCType type, v8::GCCallbackFlags flags) {
   if (events_enabled > 0) {
     EVENT_DATA_DESCRIPTOR descriptors[2];
     ETW_WRITE_GC(descriptors, type, flags);
@@ -215,7 +220,12 @@ void NODE_V8SYMBOL_ADD(LPCSTR symbol,
     if (symbol == NULL) {
       SETSYMBUF(L"NULL");
     } else {
-      symbol_len = MultiByteToWideChar(CP_ACP, 0, symbol, symbol_len, symbuf, 128);
+      symbol_len = MultiByteToWideChar(CP_ACP,
+                                       0,
+                                       symbol,
+                                       symbol_len,
+                                       symbuf,
+                                       128);
       if (symbol_len == 0) {
         SETSYMBUF(L"Invalid");
       } else {
@@ -261,5 +271,7 @@ bool NODE_NET_STREAM_END_ENABLED() { return events_enabled > 0; }
 bool NODE_NET_SOCKET_READ_ENABLED() { return events_enabled > 0; }
 bool NODE_NET_SOCKET_WRITE_ENABLED() { return events_enabled > 0; }
 bool NODE_V8SYMBOL_ENABLED() { return events_enabled > 0; }
-}
-#endif  // SRC_ETW_INL_H_
+
+}  // namespace node
+
+#endif  // SRC_NODE_WIN32_ETW_PROVIDER_INL_H_

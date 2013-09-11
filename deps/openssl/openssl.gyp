@@ -16,7 +16,13 @@
         # No clue what these are for.
         'L_ENDIAN',
         'PURIFY',
-        '_REENTRANT'
+        '_REENTRANT',
+
+        # Heartbeat is a TLS extension, that couldn't be turned off or
+        # asked to be not advertised. Unfortunately this is unacceptable for
+        # Microsoft's IIS, which seems to be ignoring whole ClientHello after
+        # seeing this extension.
+        'OPENSSL_NO_HEARTBEATS',
       ],
       'sources': [
         'openssl/ssl/bio_ssl.c',
@@ -688,9 +694,14 @@
             'CPUID_ASM',
             'DES_ASM',
             'LIB_BN_ASM',
+            'MD5_ASM',
             'OPENSSL_BN_ASM',
             'OPENSSL_CPUID_OBJ',
             'RIP_ASM',
+            'RMD160_ASM',
+            'SHA1_ASM',
+            'SHA256_ASM',
+            'SHA512_ASM',
             'WHIRLPOOL_ASM',
             'WP_ASM'
           ],
@@ -730,6 +741,7 @@
                 'asm/x64-elf-gas/rc4/rc4-x86_64.s',
                 'asm/x64-elf-gas/rc4/rc4-md5-x86_64.s',
                 'asm/x64-elf-gas/sha/sha1-x86_64.s',
+                'asm/x64-elf-gas/sha/sha256-x86_64.s',
                 'asm/x64-elf-gas/sha/sha512-x86_64.s',
                 'asm/x64-elf-gas/whrlpool/wp-x86_64.s',
                 'asm/x64-elf-gas/x86_64cpuid.s',
@@ -778,6 +790,7 @@
                 'asm/x64-macosx-gas/rc4/rc4-x86_64.s',
                 'asm/x64-macosx-gas/rc4/rc4-md5-x86_64.s',
                 'asm/x64-macosx-gas/sha/sha1-x86_64.s',
+                'asm/x64-macosx-gas/sha/sha256-x86_64.s',
                 'asm/x64-macosx-gas/sha/sha512-x86_64.s',
                 'asm/x64-macosx-gas/whrlpool/wp-x86_64.s',
                 'asm/x64-macosx-gas/x86_64cpuid.s',
@@ -845,6 +858,7 @@
                 'asm/x64-win32-masm/rc4/rc4-x86_64.asm',
                 'asm/x64-win32-masm/rc4/rc4-md5-x86_64.asm',
                 'asm/x64-win32-masm/sha/sha1-x86_64.asm',
+                'asm/x64-win32-masm/sha/sha256-x86_64.asm',
                 'asm/x64-win32-masm/sha/sha512-x86_64.asm',
                 'asm/x64-win32-masm/whrlpool/wp-x86_64.asm',
                 'asm/x64-win32-masm/x86_64cpuid.asm',
@@ -882,7 +896,13 @@
           'defines': [
             'MK1MF_BUILD',
             'WIN32_LEAN_AND_MEAN'
-          ]
+          ],
+          'link_settings': {
+            'libraries': [
+              '-lgdi32.lib',
+              '-luser32.lib',
+            ]
+          }
         }, {
           'defines': [
             # ENGINESDIR must be defined if OPENSSLDIR is.
