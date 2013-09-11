@@ -104,6 +104,28 @@ test('passthrough', function(t) {
   t.end();
 });
 
+test('object passthrough', function (t) {
+  var pt = new PassThrough({ objectMode: true });
+
+  pt.write(1);
+  pt.write(true);
+  pt.write(false);
+  pt.write(0);
+  pt.write('foo');
+  pt.write('');
+  pt.write({ a: 'b'});
+  pt.end();
+
+  t.equal(pt.read(), 1);
+  t.equal(pt.read(), true);
+  t.equal(pt.read(), false);
+  t.equal(pt.read(), 0);
+  t.equal(pt.read(), 'foo');
+  t.equal(pt.read(), '');
+  t.same(pt.read(), { a: 'b'});
+  t.end();
+});
+
 test('simple transform', function(t) {
   var pt = new Transform;
   pt._transform = function(c, e, cb) {
@@ -126,6 +148,32 @@ test('simple transform', function(t) {
   t.end();
 });
 
+test('simple object transform', function(t) {
+  var pt = new Transform({ objectMode: true });
+  pt._transform = function(c, e, cb) {
+    pt.push(JSON.stringify(c));
+    cb();
+  };
+
+  pt.write(1);
+  pt.write(true);
+  pt.write(false);
+  pt.write(0);
+  pt.write('foo');
+  pt.write('');
+  pt.write({ a: 'b'});
+  pt.end();
+
+  t.equal(pt.read(), '1');
+  t.equal(pt.read(), 'true');
+  t.equal(pt.read(), 'false');
+  t.equal(pt.read(), '0');
+  t.equal(pt.read(), '"foo"');
+  t.equal(pt.read(), '""');
+  t.equal(pt.read(), '{"a":"b"}');
+  t.end();
+});
+
 test('async passthrough', function(t) {
   var pt = new Transform;
   pt._transform = function(chunk, encoding, cb) {
@@ -141,13 +189,13 @@ test('async passthrough', function(t) {
   pt.write(new Buffer('kuel'));
   pt.end();
 
-  setTimeout(function() {
+  pt.on('finish', function() {
     t.equal(pt.read(5).toString(), 'foogb');
     t.equal(pt.read(5).toString(), 'arkba');
     t.equal(pt.read(5).toString(), 'zykue');
     t.equal(pt.read(5).toString(), 'l');
     t.end();
-  }, 100);
+  });
 });
 
 test('assymetric transform (expand)', function(t) {
@@ -170,7 +218,7 @@ test('assymetric transform (expand)', function(t) {
   pt.write(new Buffer('kuel'));
   pt.end();
 
-  setTimeout(function() {
+  pt.on('finish', function() {
     t.equal(pt.read(5).toString(), 'foogf');
     t.equal(pt.read(5).toString(), 'oogba');
     t.equal(pt.read(5).toString(), 'rkbar');
@@ -179,7 +227,7 @@ test('assymetric transform (expand)', function(t) {
     t.equal(pt.read(5).toString(), 'uelku');
     t.equal(pt.read(5).toString(), 'el');
     t.end();
-  }, 200);
+  });
 });
 
 test('assymetric transform (compress)', function(t) {
@@ -205,11 +253,9 @@ test('assymetric transform (compress)', function(t) {
 
   pt._flush = function(cb) {
     // just output whatever we have.
-    setTimeout(function() {
-      pt.push(new Buffer(this.state));
-      this.state = '';
-      cb();
-    }.bind(this), 10);
+    pt.push(new Buffer(this.state));
+    this.state = '';
+    cb();
   };
 
   pt.write(new Buffer('aaaa'));
@@ -229,12 +275,47 @@ test('assymetric transform (compress)', function(t) {
   pt.end();
 
   // 'abcdeabcdeabcd'
-  setTimeout(function() {
+  pt.on('finish', function() {
     t.equal(pt.read(5).toString(), 'abcde');
     t.equal(pt.read(5).toString(), 'abcde');
     t.equal(pt.read(5).toString(), 'abcd');
     t.end();
-  }, 200);
+  });
+});
+
+// this tests for a stall when data is written to a full stream
+// that has empty transforms.
+test('complex transform', function(t) {
+  var count = 0;
+  var saved = null;
+  var pt = new Transform({highWaterMark:3});
+  pt._transform = function(c, e, cb) {
+    if (count++ === 1)
+      saved = c;
+    else {
+      if (saved) {
+        pt.push(saved);
+        saved = null;
+      }
+      pt.push(c);
+    }
+
+    cb();
+  };
+
+  pt.once('readable', function() {
+    process.nextTick(function() {
+      pt.write(new Buffer('d'));
+      pt.write(new Buffer('ef'), function() {
+        pt.end();
+        t.end();
+      });
+      t.equal(pt.read().toString(), 'abcdef');
+      t.equal(pt.read(), null);
+    });
+  });
+
+  pt.write(new Buffer('abc'));
 });
 
 
@@ -389,6 +470,8 @@ test('object transform (json parse)', function(t) {
   });
 
   jp.end();
+  // read one more time to get the 'end' event
+  jp.read();
 
   process.nextTick(function() {
     t.ok(ended);
@@ -429,6 +512,8 @@ test('object transform (json stringify)', function(t) {
   });
 
   js.end();
+  // read one more time to get the 'end' event
+  js.read();
 
   process.nextTick(function() {
     t.ok(ended);

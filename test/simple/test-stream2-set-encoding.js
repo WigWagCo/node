@@ -64,9 +64,7 @@ process.nextTick(run);
 util.inherits(TestReader, R);
 
 function TestReader(n, opts) {
-  R.call(this, util._extend({
-    bufferSize: 5
-  }, opts));
+  R.call(this, opts);
 
   this.pos = 0;
   this.len = n || 100;
@@ -76,11 +74,15 @@ TestReader.prototype._read = function(n) {
   setTimeout(function() {
 
     if (this.pos >= this.len) {
+      // double push(null) to test eos handling
+      this.push(null);
       return this.push(null);
     }
 
     n = Math.min(n, this.len - this.pos);
     if (n <= 0) {
+      // double push(null) to test eos handling
+      this.push(null);
       return this.push(null);
     }
 
@@ -120,9 +122,6 @@ test('setEncoding utf8', function(t) {
     t.same(out, expect);
     t.end();
   });
-
-  // just kick it off.
-  tr.emit('readable');
 });
 
 
@@ -162,9 +161,6 @@ test('setEncoding hex', function(t) {
     t.same(out, expect);
     t.end();
   });
-
-  // just kick it off.
-  tr.emit('readable');
 });
 
 test('setEncoding hex with read(13)', function(t) {
@@ -201,9 +197,38 @@ test('setEncoding hex with read(13)', function(t) {
     t.same(out, expect);
     t.end();
   });
+});
 
-  // just kick it off.
-  tr.emit('readable');
+test('setEncoding base64', function(t) {
+  var tr = new TestReader(100);
+  tr.setEncoding('base64');
+  var out = [];
+  var expect =
+    [ 'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYQ==' ];
+
+  tr.on('readable', function flow() {
+    var chunk;
+    while (null !== (chunk = tr.read(10)))
+      out.push(chunk);
+  });
+
+  tr.on('end', function() {
+    t.same(out, expect);
+    t.end();
+  });
 });
 
 test('encoding: utf8', function(t) {
@@ -231,9 +256,6 @@ test('encoding: utf8', function(t) {
     t.same(out, expect);
     t.end();
   });
-
-  // just kick it off.
-  tr.emit('readable');
 });
 
 
@@ -272,9 +294,6 @@ test('encoding: hex', function(t) {
     t.same(out, expect);
     t.end();
   });
-
-  // just kick it off.
-  tr.emit('readable');
 });
 
 test('encoding: hex with read(13)', function(t) {
@@ -308,7 +327,41 @@ test('encoding: hex with read(13)', function(t) {
     t.same(out, expect);
     t.end();
   });
+});
 
-  // just kick it off.
-  tr.emit('readable');
+test('encoding: base64', function(t) {
+  var tr = new TestReader(100, { encoding: 'base64' });
+  var out = [];
+  var expect =
+    [ 'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYWFhYWFh',
+      'YWFhYWFhYW',
+      'FhYQ==' ];
+
+  tr.on('readable', function flow() {
+    var chunk;
+    while (null !== (chunk = tr.read(10)))
+      out.push(chunk);
+  });
+
+  tr.on('end', function() {
+    t.same(out, expect);
+    t.end();
+  });
+});
+
+test('chainable', function(t) {
+  var tr = new TestReader(100);
+  t.equal(tr.setEncoding('utf8'), tr);
+  t.end();
 });

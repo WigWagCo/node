@@ -446,6 +446,15 @@ a6.write('123');
 a6.end();
 a6 = a6.read();
 
+var a7 = crypto.createHash('sha512');
+a7.end();
+a7 = a7.read();
+
+var a8 = crypto.createHash('sha512');
+a8.write('');
+a8.end();
+a8 = a8.read();
+
 assert.equal(a0, '8308651804facb7b9af8ffc53a33a22d6a1c8ac2', 'Test SHA1');
 assert.equal(a1, 'h\u00ea\u00cb\u0097\u00d8o\fF!\u00fa+\u000e\u0017\u00ca' +
              '\u00bd\u008c', 'Test MD5 as binary');
@@ -468,6 +477,8 @@ assert.deepEqual(a4,
 // stream interface should produce the same result.
 assert.deepEqual(a5, a3, 'stream interface is consistent');
 assert.deepEqual(a6, a3, 'stream interface is consistent');
+assert.notEqual(a7, undefined, 'no data should return data');
+assert.notEqual(a8, undefined, 'empty string should generate data');
 
 // Test multiple updates to same hash
 var h1 = crypto.createHash('sha1').update('Test123').digest('hex');
@@ -698,9 +709,20 @@ var secret3 = dh3.computeSecret(key2, 'hex', 'base64');
 
 assert.equal(secret1, secret3);
 
+// Run this one twice to make sure that the dh3 clears its error properly
+(function() {
+  var c = crypto.createDecipher('aes-128-ecb', '');
+  assert.throws(function() { c.final('utf8') }, /wrong final block length/);
+})();
+
 assert.throws(function() {
   dh3.computeSecret('');
 }, /key is too small/i);
+
+(function() {
+  var c = crypto.createDecipher('aes-128-ecb', '');
+  assert.throws(function() { c.final('utf8') }, /wrong final block length/);
+})();
 
 // Create a shared using a DH group.
 var alice = crypto.createDiffieHellmanGroup('modp5');
@@ -834,30 +856,29 @@ testPBKDF2('pass\0word', 'sa\0lt', 4096, 16,
            '\x25\xe0\xc3');
 
 function assertSorted(list) {
-  for (var i = 0, k = list.length - 1; i < k; ++i) {
-    var a = list[i + 0];
-    var b = list[i + 1];
-    assert(a <= b);
-  }
+  assert.deepEqual(list, list.sort());
 }
 
-// Assume that we have at least AES256-SHA.
-assert.notEqual(0, crypto.getCiphers());
-assert.notEqual(-1, crypto.getCiphers().indexOf('AES256-SHA'));
+// Assume that we have at least AES-128-CBC.
+assert.notEqual(0, crypto.getCiphers().length);
+assert.notEqual(-1, crypto.getCiphers().indexOf('aes-128-cbc'));
+assert.equal(-1, crypto.getCiphers().indexOf('AES-128-CBC'));
 assertSorted(crypto.getCiphers());
 
+// Assume that we have at least AES256-SHA.
+var tls = require('tls');
+assert.notEqual(0, tls.getCiphers().length);
+assert.notEqual(-1, tls.getCiphers().indexOf('aes256-sha'));
+assert.equal(-1, tls.getCiphers().indexOf('AES256-SHA'));
+assertSorted(tls.getCiphers());
+
 // Assert that we have sha and sha1 but not SHA and SHA1.
-assert.notEqual(0, crypto.getHashes());
+assert.notEqual(0, crypto.getHashes().length);
 assert.notEqual(-1, crypto.getHashes().indexOf('sha1'));
 assert.notEqual(-1, crypto.getHashes().indexOf('sha'));
 assert.equal(-1, crypto.getHashes().indexOf('SHA1'));
 assert.equal(-1, crypto.getHashes().indexOf('SHA'));
 assertSorted(crypto.getHashes());
-
-(function() {
-  var c = crypto.createDecipher('aes-128-ecb', '');
-  assert.throws(function() { c.final('utf8') }, /invalid public key/);
-})();
 
 // Base64 padding regression test, see #4837.
 (function() {
@@ -883,3 +904,47 @@ assert.throws(function() {
   try { d.final('xxx') } catch (e) { /* Ignore. */ }
   try { d.final('xxx') } catch (e) { /* Ignore. */ }
 })();
+
+// Regression test for #5482: string to Cipher#update() should not assert.
+(function() {
+  var c = crypto.createCipher('aes192', '0123456789abcdef');
+  c.update('update');
+  c.final();
+})();
+
+// #5655 regression tests, 'utf-8' and 'utf8' are identical.
+(function() {
+  var c = crypto.createCipher('aes192', '0123456789abcdef');
+  c.update('update', '');  // Defaults to "utf8".
+  c.final('utf-8');  // Should not throw.
+
+  c = crypto.createCipher('aes192', '0123456789abcdef');
+  c.update('update', 'utf8');
+  c.final('utf-8');  // Should not throw.
+
+  c = crypto.createCipher('aes192', '0123456789abcdef');
+  c.update('update', 'utf-8');
+  c.final('utf8');  // Should not throw.
+})();
+
+// Regression tests for #5725: hex input that's not a power of two should
+// throw, not assert in C++ land.
+assert.throws(function() {
+  crypto.createCipher('aes192', 'test').update('0', 'hex');
+}, /Bad input string/);
+
+assert.throws(function() {
+  crypto.createDecipher('aes192', 'test').update('0', 'hex');
+}, /Bad input string/);
+
+assert.throws(function() {
+  crypto.createHash('sha1').update('0', 'hex');
+}, /Bad input string/);
+
+assert.throws(function() {
+  crypto.createSign('RSA-SHA1').update('0', 'hex');
+}, /Bad input string/);
+
+assert.throws(function() {
+  crypto.createVerify('RSA-SHA1').update('0', 'hex');
+}, /Bad input string/);

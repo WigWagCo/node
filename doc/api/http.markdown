@@ -15,6 +15,7 @@ HTTP message headers are represented by an object like this:
     { 'content-length': '123',
       'content-type': 'text/plain',
       'connection': 'keep-alive',
+      'host': 'mysite.com',
       'accept': '*/*' }
 
 Keys are lowercased. Values are not modified.
@@ -24,6 +25,23 @@ HTTP API is very low-level. It deals with stream handling and message
 parsing only. It parses a message into headers and body but it does not
 parse the actual headers or the body.
 
+Defined headers that allow multiple values are concatenated with a `,`
+character, except for the `set-cookie` and `cookie` headers which are
+represented as an array of values.  Headers such as `content-length`
+which can only have a single value are parsed accordingly, and only a
+single value is represented on the parsed object.
+
+The raw headers as they were received are retained in the `rawHeaders`
+property, which is an array of `[key, value, key2, value2, ...]`.  For
+example, the previous message header object might have a `rawHeaders`
+list like the following:
+
+    [ 'ConTent-Length', '123456',
+      'content-LENGTH', '123',
+      'content-type', 'text/plain',
+      'CONNECTION', 'keep-alive',
+      'Host', 'mysite.com',
+      'accepT', '*/*' ]
 
 ## http.STATUS_CODES
 
@@ -56,22 +74,24 @@ This is an [EventEmitter][] with the following events:
 
 Emitted each time there is a request. Note that there may be multiple requests
 per connection (in the case of keep-alive connections).
- `request` is an instance of `http.IncomingMessage` and `response` is
- an instance of `http.ServerResponse`
+`request` is an instance of `http.IncomingMessage` and `response` is
+an instance of `http.ServerResponse`
 
 ### Event: 'connection'
 
 `function (socket) { }`
 
- When a new TCP stream is established. `socket` is an object of type
- `net.Socket`. Usually users will not want to access this event. The
- `socket` can also be accessed at `request.connection`.
+When a new TCP stream is established. `socket` is an object of type
+`net.Socket`. Usually users will not want to access this event. In
+particular, the socket will not emit `readable` events because of how
+the protocol parser attaches to the socket. The `socket` can also be
+accessed at `request.connection`.
 
 ### Event: 'close'
 
 `function () { }`
 
- Emitted when the server closes.
+Emitted when the server closes.
 
 ### Event: 'checkContinue'
 
@@ -187,7 +207,36 @@ Stops the server from accepting new connections.  See [net.Server.close()][].
 Limits maximum incoming headers count, equal to 1000 by default. If set to 0 -
 no limit will be applied.
 
+### server.setTimeout(msecs, callback)
 
+* `msecs` {Number}
+* `callback` {Function}
+
+Sets the timeout value for sockets, and emits a `'timeout'` event on
+the Server object, passing the socket as an argument, if a timeout
+occurs.
+
+If there is a `'timeout'` event listener on the Server object, then it
+will be called with the timed-out socket as an argument.
+
+By default, the Server's timeout value is 2 minutes, and sockets are
+destroyed automatically if they time out.  However, if you assign a
+callback to the Server's `'timeout'` event, then you are responsible
+for handling socket timeouts.
+
+### server.timeout
+
+* {Number} Default = 120000 (2 minutes)
+
+The number of milliseconds of inactivity before a socket is presumed
+to have timed out.
+
+Note that the socket timeout logic is set up on connection, so
+changing this value only affects *new* connections to the server, not
+any existing connections.
+
+Set to 0 to disable any kind of automatic timeout behavior on incoming
+connections.
 
 ## Class: http.ServerResponse
 
@@ -201,7 +250,7 @@ The response implements the [Writable Stream][] interface. This is an
 
 `function () { }`
 
-Indicates that the underlaying connection was terminated before
+Indicates that the underlying connection was terminated before
 `response.end()` was called or able to flush.
 
 ### response.writeContinue()
@@ -236,6 +285,21 @@ should be used to determine the number of bytes in a given encoding.
 And Node does not check whether Content-Length and the length of the body
 which has been transmitted are equal or not.
 
+### response.setTimeout(msecs, callback)
+
+* `msecs` {Number}
+* `callback` {Function}
+
+Sets the Socket's timeout value to `msecs`.  If a callback is
+provided, then it is added as a listener on the `'timeout'` event on
+the response object.
+
+If no `'timeout'` listener is added to the request, the response, or
+the server, then sockets are destroyed when they time out.  If you
+assign a handler on the request, the response, or the server's
+`'timeout'` events, then it is your responsibility to handle timed out
+sockets.
+
 ### response.statusCode
 
 When using implicit headers (not calling `response.writeHead()` explicitly), this property
@@ -269,7 +333,7 @@ Boolean (read-only). True if headers were sent, false otherwise.
 
 ### response.sendDate
 
-When true, the Date header will be automatically generated and sent in 
+When true, the Date header will be automatically generated and sent in
 the response if it is not already present in the headers. Defaults to true.
 
 This should only be disabled for testing; HTTP requires the Date header
@@ -367,7 +431,9 @@ Options:
 - `socketPath`: Unix Domain Socket (use one of host:port or socketPath)
 - `method`: A string specifying the HTTP request method. Defaults to `'GET'`.
 - `path`: Request path. Defaults to `'/'`. Should include query string if any.
-  E.G. `'/index.html?page=12'`
+  E.G. `'/index.html?page=12'`. An exception is thrown when the request path
+  contains illegal characters. Currently, only spaces are rejected but that
+  may change in the future.
 - `headers`: An object containing request headers.
 - `auth`: Basic authentication i.e. `'user:password'` to compute an
   Authorization header.
@@ -377,6 +443,11 @@ Options:
  - `Agent` object: explicitly use the passed in `Agent`.
  - `false`: opts out of connection pooling with an Agent, defaults request to
    `Connection: close`.
+- `keepAlive`: {Boolean} Keep sockets around in a pool to be used
+  by other requests in the future. Default = `false`
+- `keepAliveMsecs`: {Integer} When using HTTP KeepAlive, how often to
+  send TCP KeepAlive packets over sockets being kept alive.  Default =
+  `1000`.  Only relevant if `keepAlive` is set to `true`.
 
 `http.request()` returns an instance of the `http.ClientRequest`
 class. The `ClientRequest` instance is a writable stream. If one needs to
@@ -449,22 +520,29 @@ Example:
 
 ## Class: http.Agent
 
-In node 0.5.3+ there is a new implementation of the HTTP Agent which is used
-for pooling sockets used in HTTP client requests.
+The HTTP Agent is used for pooling sockets used in HTTP client
+requests.
 
-Previously, a single agent instance helped pool for a single host+port. The
-current implementation now holds sockets for any number of hosts.
+The HTTP Agent also defaults client requests to using
+Connection:keep-alive. If no pending HTTP requests are waiting on a
+socket to become free the socket is closed. This means that Node's
+pool has the benefit of keep-alive when under load but still does not
+require developers to manually close the HTTP clients using
+KeepAlive.
 
-The current HTTP Agent also defaults client requests to using
-Connection:keep-alive. If no pending HTTP requests are waiting on a socket
-to become free the socket is closed. This means that node's pool has the
-benefit of keep-alive when under load but still does not require developers
-to manually close the HTTP clients using keep-alive.
+If you opt into using HTTP KeepAlive, you can create an Agent object
+with that flag set to `true`.  (See the [constructor
+options](#http_new_agent_options) below.)  Then, the Agent will keep
+unused sockets in a pool for later use.  They will be explicitly
+marked so as to not keep the Node process running.  However, it is
+still a good idea to explicitly [`destroy()`](#http_agent_destroy)
+KeepAlive agents when they are no longer in use, so that the Sockets
+will be shut down.
 
-Sockets are removed from the agent's pool when the socket emits either a
-"close" event or a special "agentRemove" event. This means that if you intend
-to keep one HTTP request open for a long time and don't want it to stay in the
-pool you can do something along the lines of:
+Sockets are removed from the agent's pool when the socket emits either
+a "close" event or a special "agentRemove" event. This means that if
+you intend to keep one HTTP request open for a long time and don't
+want it to stay in the pool you can do something along the lines of:
 
     http.get(options, function(res) {
       // Do stuff
@@ -472,26 +550,88 @@ pool you can do something along the lines of:
       socket.emit("agentRemove");
     });
 
-Alternatively, you could just opt out of pooling entirely using `agent:false`:
+Alternatively, you could just opt out of pooling entirely using
+`agent:false`:
 
-    http.get({hostname:'localhost', port:80, path:'/', agent:false}, function (res) {
-      // Do stuff
+    http.get({
+      hostname: 'localhost',
+      port: 80,
+      path: '/',
+      agent: false  // create a new agent just for this one request
+    }, function (res) {
+      // Do stuff with response
     })
+
+### new Agent([options])
+
+* `options` {Object} Set of configurable options to set on the agent.
+  Can have the following fields:
+  * `keepAlive` {Boolean} Keep sockets around in a pool to be used by
+    other requests in the future. Default = `false`
+  * `keepAliveMsecs` {Integer} When using HTTP KeepAlive, how often
+    to send TCP KeepAlive packets over sockets being kept alive.
+    Default = `1000`.  Only relevant if `keepAlive` is set to `true`.
+  * `maxSockets` {Number} Maximum number of sockets to allow per
+    host.  Default = `Infinity`.
+  * `maxFreeSockets` {Number} Maximum number of sockets to leave open
+    in a free state.  Only relevant if `keepAlive` is set to `true`.
+    Default = `256`.
+
+The default `http.globalAgent` that is used by `http.request` has all
+of these values set to their respective defaults.
+
+To configure any of them, you must create your own `Agent` object.
+
+```javascript
+var http = require('http');
+var keepAliveAgent = new http.Agent({ keepAlive: true });
+keepAliveAgent.request(options, onResponseCallback);
+```
 
 ### agent.maxSockets
 
-By default set to 5. Determines how many concurrent sockets the agent can have 
-open per host.
+By default set to Infinity. Determines how many concurrent sockets the
+agent can have open per host.
+
+### agent.maxFreeSockets
+
+By default set to 256.  For Agents supporting HTTP KeepAlive, this
+sets the maximum number of sockets that will be left open in the free
+state.
 
 ### agent.sockets
 
-An object which contains arrays of sockets currently in use by the Agent. Do not 
-modify.
+An object which contains arrays of sockets currently in use by the
+Agent.  Do not modify.
+
+### agent.freeSockets
+
+An object which contains arrays of sockets currently awaiting use by
+the Agent when HTTP KeepAlive is used.  Do not modify.
 
 ### agent.requests
 
-An object which contains queues of requests that have not yet been assigned to 
+An object which contains queues of requests that have not yet been assigned to
 sockets. Do not modify.
+
+### agent.destroy()
+
+Destroy any sockets that are currently in use by the agent.
+
+It is usually not necessary to do this.  However, if you are using an
+agent with KeepAlive enabled, then it is best to explicitly shut down
+the agent when you know that it will no longer be used.  Otherwise,
+sockets may hang open for quite a long time before the server
+terminates them.
+
+### agent.getName(options)
+
+Get a unique name for a set of request options, to determine whether a
+connection can be reused.  In the http agent, this returns
+`host:port:localAddress`.  In the https agent, the name includes the
+CA, cert, ciphers, and other HTTPS/TLS-specific options that determine
+socket reusability.
+
 
 ## http.globalAgent
 
@@ -513,28 +653,16 @@ headers have been received.  The `'response'` event is executed with one
 argument which is an instance of `http.IncomingMessage`.
 
 During the `'response'` event, one can add listeners to the
-response object; particularly to listen for the `'data'` event. Note that
-the `'response'` event is called before any part of the response body is received,
-so there is no need to worry about racing to catch the first part of the
-body. As long as a listener for `'data'` is added during the `'response'`
-event, the entire body will be caught.
+response object; particularly to listen for the `'data'` event.
 
-
-    // Good
-    request.on('response', function (response) {
-      response.on('data', function (chunk) {
-        console.log('BODY: ' + chunk);
-      });
-    });
-
-    // Bad - misses all or part of the body
-    request.on('response', function (response) {
-      setTimeout(function () {
-        response.on('data', function (chunk) {
-          console.log('BODY: ' + chunk);
-        });
-      }, 10);
-    });
+If no `'response'` handler is added, then the response will be
+entirely discarded.  However, if you add a `'response'` event handler,
+then you **must** consume the data from the response object, either by
+calling `response.read()` whenever there is a `'readable'` event, or
+by adding a `'data'` handler, or by calling the `.resume()` method.
+Until the data is consumed, the `'end'` event will not fire.  Also, until
+the data is read it will consume memory that can eventually lead to a
+'process out of memory' error.
 
 Note: Node does not check whether Content-Length and the length of the body
 which has been transmitted are equal or not.
@@ -730,26 +858,8 @@ An `IncomingMessage` object is created by `http.Server` or `http.ClientRequest`
 and passed as the first argument to the `'request'` and `'response'` event
 respectively. It may be used to access response status, headers and data.
 
-It implements the [Readable Stream][] interface. `http.IncomingMessage` is an
-[EventEmitter][] with the following events:
-
-### Event: 'data'
-
-`function (chunk) { }`
-
-Emitted when a piece of the message body is received. The chunk is a string if
-an encoding has been set with `message.setEncoding()`, otherwise it's
-a [Buffer][].
-
-Note that the __data will be lost__ if there is no listener when a
-`IncomingMessage` emits a `'data'` event.
-
-### Event: 'end'
-
-`function () { }`
-
-Emitted exactly once for each response. After that, no more `'data'` events
-will be emitted on the response.
+It implements the [Readable Stream][] interface, as well as the
+following additional events, methods, and properties.
 
 ### Event: 'close'
 
@@ -758,9 +868,8 @@ will be emitted on the response.
 Indicates that the underlaying connection was terminated before
 `response.end()` was called or able to flush.
 
-Just like `'end'`, this event occurs only once per response, and no more
-`'data'` events will fire afterwards. See [http.ServerResponse][]'s `'close'`
-event for more information.
+Just like `'end'`, this event occurs only once per response. See
+[http.ServerResponse][]'s `'close'` event for more information.
 
 ### message.httpVersion
 
@@ -785,24 +894,43 @@ Example:
     //   accept: '*/*' }
     console.log(request.headers);
 
+### message.rawHeaders
+
+The raw request/response headers list exactly as they were received.
+
+Note that the keys and values are in the same list.  It is *not* a
+list of tuples.  So, the even-numbered offsets are key values, and the
+odd-numbered offsets are the associated values.
+
+Header names are not lowercased, and duplicates are not merged.
+
+    // Prints something like:
+    //
+    // [ 'user-agent',
+    //   'this is invalid because there can be only one',
+    //   'User-Agent',
+    //   'curl/7.22.0',
+    //   'Host',
+    //   '127.0.0.1:8000',
+    //   'ACCEPT',
+    //   '*/*' ]
+    console.log(request.rawHeaders);
+
 ### message.trailers
 
-The request/response trailers object. Only populated after the 'end' event.
+The request/response trailers object. Only populated at the 'end' event.
 
-### message.setEncoding([encoding])
+### message.rawTrailers
 
-Set the encoding for data emitted by the `'data'` event. See [stream.setEncoding()][] for more
-information.
+The raw request/response trailer keys and values exactly as they were
+received.  Only populated at the 'end' event.
 
-Should be set before any `'data'` events have been emitted.
+### message.setTimeout(msecs, callback)
 
-### message.pause()
+* `msecs` {Number}
+* `callback` {Function}
 
-Pauses request/response from emitting events.  Useful to throttle back a download.
-
-### message.resume()
-
-Resumes a paused request/response.
+Calls `message.connection.setTimeout(msecs, callback)`.
 
 ### message.method
 
