@@ -285,10 +285,20 @@ static int uv__set_reuse(int fd) {
 }
 
 
+<<<<<<< HEAD
 int uv__udp_bind(uv_udp_t* handle,
                  const struct sockaddr* addr,
                  unsigned int addrlen,
                  unsigned int flags) {
+=======
+static int uv__bind(uv_udp_t* handle,
+                    int domain,
+                    struct sockaddr* addr,
+                    socklen_t len,
+                    unsigned flags) {
+  int saved_errno;
+  int status;
+>>>>>>> upstream/v0.10.24-release
   int err;
   int yes;
   int fd;
@@ -312,9 +322,18 @@ int uv__udp_bind(uv_udp_t* handle,
     handle->io_watcher.fd = fd;
   }
 
+<<<<<<< HEAD
   err = uv__set_reuse(fd);
   if (err)
     goto out;
+=======
+  fd = handle->io_watcher.fd;
+  err = uv__set_reuse(fd);
+  if (err) {
+    uv__set_sys_error(handle->loop, -err);
+    goto out;
+  }
+>>>>>>> upstream/v0.10.24-release
 
   if (flags & UV_UDP_IPV6ONLY) {
 #ifdef IPV6_V6ONLY
@@ -431,6 +450,7 @@ int uv_udp_init(uv_loop_t* loop, uv_udp_t* handle) {
 
 
 int uv_udp_open(uv_udp_t* handle, uv_os_sock_t sock) {
+<<<<<<< HEAD
   int err;
 
   /* Check for already active socket. */
@@ -440,6 +460,26 @@ int uv_udp_open(uv_udp_t* handle, uv_os_sock_t sock) {
   err = uv__set_reuse(sock);
   if (err)
     return err;
+=======
+  int saved_errno;
+  int status;
+  int err;
+
+  saved_errno = errno;
+  status = -1;
+
+  /* Check for already active socket. */
+  if (handle->io_watcher.fd != -1) {
+    uv__set_artificial_error(handle->loop, UV_EALREADY);
+    goto out;
+  }
+
+  err = uv__set_reuse(sock);
+  if (err) {
+    uv__set_sys_error(handle->loop, -err);
+    goto out;
+  }
+>>>>>>> upstream/v0.10.24-release
 
   handle->io_watcher.fd = sock;
   return 0;

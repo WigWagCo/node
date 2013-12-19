@@ -483,7 +483,20 @@ class Parser : public ObjectWrap {
   }
 
 
+<<<<<<< HEAD
  private:
+=======
+  template <bool should_pause>
+  static Handle<Value> Pause(const Arguments& args) {
+    HandleScope scope;
+    Parser* parser = ObjectWrap::Unwrap<Parser>(args.This());
+    http_parser_pause(&parser->parser_, should_pause);
+    return Undefined();
+  }
+
+
+private:
+>>>>>>> upstream/v0.10.24-release
 
   Local<Array> CreateHeaders() {
     // num_values_ is either -1 or the entry # of the last header
@@ -589,6 +602,8 @@ void InitHttpParser(Handle<Object> target,
   NODE_SET_PROTOTYPE_METHOD(t, "execute", Parser::Execute);
   NODE_SET_PROTOTYPE_METHOD(t, "finish", Parser::Finish);
   NODE_SET_PROTOTYPE_METHOD(t, "reinitialize", Parser::Reinitialize);
+  NODE_SET_PROTOTYPE_METHOD(t, "pause", Parser::Pause<true>);
+  NODE_SET_PROTOTYPE_METHOD(t, "resume", Parser::Pause<false>);
 
   target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "HTTPParser"),
               t->GetFunction());

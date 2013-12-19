@@ -130,11 +130,20 @@ void UDPWrap::New(const FunctionCallbackInfo<Value>& args) {
 }
 
 
+<<<<<<< HEAD
 void UDPWrap::GetFD(Local<String>, const PropertyCallbackInfo<Value>& args) {
 #if !defined(_WIN32)
   HandleScope scope(node_isolate);
   UDPWrap* wrap;
   NODE_UNWRAP(args.This(), UDPWrap, wrap);
+=======
+Handle<Value> UDPWrap::GetFD(Local<String>, const AccessorInfo& args) {
+#if defined(_WIN32)
+  return v8::Null();
+#else
+  HandleScope scope;
+  UNWRAP_NO_ABORT(UDPWrap)
+>>>>>>> upstream/v0.10.24-release
   int fd = (wrap == NULL) ? -1 : wrap->handle_.io_watcher.fd;
   args.GetReturnValue().Set(fd);
 #endif

@@ -34,18 +34,24 @@ int uv__fsevents_close(uv_fs_event_t* handle) {
   return 0;
 }
 
+<<<<<<< HEAD
 
 void uv__fsevents_loop_delete(uv_loop_t* loop) {
 }
 
+=======
+>>>>>>> upstream/v0.10.24-release
 #else /* TARGET_OS_IPHONE */
 
 #include <dlfcn.h>
 #include <assert.h>
 #include <stdlib.h>
+<<<<<<< HEAD
 #include <pthread.h>
 
 #include <CoreFoundation/CFRunLoop.h>
+=======
+>>>>>>> upstream/v0.10.24-release
 #include <CoreServices/CoreServices.h>
 
 /* These are macros to avoid "initializer element is not constant" errors
@@ -70,6 +76,7 @@ void uv__fsevents_loop_delete(uv_loop_t* loop) {
                            kFSEventStreamEventFlagRootChanged)
 
 typedef struct uv__fsevents_event_s uv__fsevents_event_t;
+<<<<<<< HEAD
 typedef struct uv__cf_loop_signal_s uv__cf_loop_signal_t;
 typedef struct uv__cf_loop_state_s uv__cf_loop_state_t;
 
@@ -88,13 +95,16 @@ struct uv__cf_loop_signal_s {
   QUEUE member;
   uv_fs_event_t* handle;
 };
+=======
+>>>>>>> upstream/v0.10.24-release
 
 struct uv__fsevents_event_s {
   int events;
-  void* next;
+  ngx_queue_t member;
   char path[1];
 };
 
+<<<<<<< HEAD
 /* Forward declarations */
 static void uv__cf_loop_cb(void* arg);
 static void* uv__cf_loop_runner(void* arg);
@@ -143,65 +153,101 @@ static void (*pFSEventStreamStop)(FSEventStreamRef);
 
 #define UV__FSEVENTS_PROCESS(handle, block)                                   \
     do {                                                                      \
+=======
+
+#define UV__FSEVENTS_WALK(handle, block)                                      \
+    {                                                                         \
+      ngx_queue_t* curr;                                                      \
+      ngx_queue_t split_head;                                                 \
+>>>>>>> upstream/v0.10.24-release
       uv__fsevents_event_t* event;                                            \
-      uv__fsevents_event_t* next;                                             \
       uv_mutex_lock(&(handle)->cf_mutex);                                     \
-      event = (handle)->cf_event;                                             \
-      (handle)->cf_event = NULL;                                              \
+      ngx_queue_init(&split_head);                                            \
+      if (!ngx_queue_empty(&(handle)->cf_events)) {                           \
+        ngx_queue_t* split_pos = ngx_queue_next(&(handle)->cf_events);        \
+        ngx_queue_split(&(handle)->cf_events, split_pos, &split_head);        \
+      }                                                                       \
       uv_mutex_unlock(&(handle)->cf_mutex);                                   \
-      while (event != NULL) {                                                 \
+      while (!ngx_queue_empty(&split_head)) {                                 \
+        curr = ngx_queue_head(&split_head);                                   \
         /* Invoke callback */                                                 \
+        event = ngx_queue_data(curr, uv__fsevents_event_t, member);           \
+        ngx_queue_remove(curr);                                               \
         /* Invoke block code, but only if handle wasn't closed */             \
-        if (!uv__is_closing((handle)))                                        \
+        if (((handle)->flags & (UV_CLOSING | UV_CLOSED)) == 0)                \
           block                                                               \
         /* Free allocated data */                                             \
-        next = event->next;                                                   \
         free(event);                                                          \
-        event = next;                                                         \
       }                                                                       \
-    } while (0)
+    }
 
 
-/* Runs in UV loop's thread, when there're events to report to handle */
-static void uv__fsevents_cb(uv_async_t* cb, int status) {
+void uv__fsevents_cb(uv_async_t* cb, int status) {
   uv_fs_event_t* handle;
 
   handle = cb->data;
 
-  UV__FSEVENTS_PROCESS(handle, {
+  UV__FSEVENTS_WALK(handle, {
     if (handle->event_watcher.fd != -1)
       handle->cb(handle, event->path[0] ? event->path : NULL, event->events, 0);
   });
 
-  if (!uv__is_closing(handle) && handle->event_watcher.fd == -1)
+  if ((handle->flags & (UV_CLOSING | UV_CLOSED)) == 0 &&
+      handle->event_watcher.fd == -1) {
     uv__fsevents_close(handle);
+  }
 }
 
 
-/* Runs in CF thread, when there're events in FSEventStream */
-static void uv__fsevents_event_cb(ConstFSEventStreamRef streamRef,
-                                  void* info,
-                                  size_t numEvents,
-                                  void* eventPaths,
-                                  const FSEventStreamEventFlags eventFlags[],
-                                  const FSEventStreamEventId eventIds[]) {
+void uv__fsevents_event_cb(ConstFSEventStreamRef streamRef,
+                           void* info,
+                           size_t numEvents,
+                           void* eventPaths,
+                           const FSEventStreamEventFlags eventFlags[],
+                           const FSEventStreamEventId eventIds[]) {
   size_t i;
   int len;
   char** paths;
   char* path;
   char* pos;
   uv_fs_event_t* handle;
+<<<<<<< HEAD
   QUEUE* q;
   uv_loop_t* loop;
   uv__cf_loop_state_t* state;
+=======
+>>>>>>> upstream/v0.10.24-release
   uv__fsevents_event_t* event;
-  uv__fsevents_event_t* tail;
+  ngx_queue_t add_list;
+  int kFSEventsModified;
+  int kFSEventsRenamed;
 
-  loop = info;
-  state = loop->cf_state;
-  assert(state != NULL);
+  kFSEventsModified = kFSEventStreamEventFlagItemFinderInfoMod |
+                      kFSEventStreamEventFlagItemModified |
+                      kFSEventStreamEventFlagItemInodeMetaMod |
+                      kFSEventStreamEventFlagItemChangeOwner |
+                      kFSEventStreamEventFlagItemXattrMod;
+  kFSEventsRenamed = kFSEventStreamEventFlagItemCreated |
+                     kFSEventStreamEventFlagItemRemoved |
+                     kFSEventStreamEventFlagItemRenamed;
+
+  handle = info;
   paths = eventPaths;
+  ngx_queue_init(&add_list);
 
+  for (i = 0; i < numEvents; i++) {
+    /* Ignore system events */
+    if (eventFlags[i] & (kFSEventStreamEventFlagUserDropped |
+                         kFSEventStreamEventFlagKernelDropped |
+                         kFSEventStreamEventFlagEventIdsWrapped |
+                         kFSEventStreamEventFlagHistoryDone |
+                         kFSEventStreamEventFlagMount |
+                         kFSEventStreamEventFlagUnmount |
+                         kFSEventStreamEventFlagRootChanged)) {
+      continue;
+    }
+
+<<<<<<< HEAD
   /* For each handle */
   QUEUE_FOREACH(q, &state->fsevent_handles) {
     handle = QUEUE_DATA(q, uv_fs_event_t, cf_member);
@@ -219,7 +265,14 @@ static void uv__fsevents_event_cb(ConstFSEventStreamRef streamRef,
       /* Filter out paths that are outside handle's request */
       if (strncmp(path, handle->realpath, handle->realpath_len) != 0)
         continue;
+=======
+    /* TODO: Report errors */
+    path = paths[i];
+    len = strlen(path);
+>>>>>>> upstream/v0.10.24-release
 
+    /* Remove absolute path prefix */
+    if (strstr(path, handle->realpath) == path) {
       path += handle->realpath_len;
       len -= handle->realpath_len;
 
@@ -228,75 +281,90 @@ static void uv__fsevents_event_cb(ConstFSEventStreamRef streamRef,
         path++;
         len--;
       }
+    }
 
 #ifdef MAC_OS_X_VERSION_10_7
-      /* Ignore events with path equal to directory itself */
-      if (len == 0)
-        continue;
+    /* Ignore events with path equal to directory itself */
+    if (len == 0)
+      continue;
 #endif /* MAC_OS_X_VERSION_10_7 */
 
-      /* Do not emit events from subdirectories (without option set) */
-      if ((handle->cf_flags & UV_FS_EVENT_RECURSIVE) == 0) {
-        pos = strchr(path, '/');
-        if (pos != NULL && pos != path + 1)
-          continue;
-      }
+    /* Do not emit events from subdirectories (without option set) */
+    pos = strchr(path, '/');
+    if ((handle->cf_flags & UV_FS_EVENT_RECURSIVE) == 0 &&
+        pos != NULL &&
+        pos != path + 1)
+      continue;
 
 #ifndef MAC_OS_X_VERSION_10_7
-      path = "";
-      len = 0;
+    path = "";
+    len = 0;
 #endif /* MAC_OS_X_VERSION_10_7 */
 
-      event = malloc(sizeof(*event) + len);
-      if (event == NULL)
-        break;
+    event = malloc(sizeof(*event) + len);
+    if (event == NULL)
+      break;
 
-      memset(event, 0, sizeof(*event));
-      memcpy(event->path, path, len + 1);
+    memcpy(event->path, path, len + 1);
 
-      if ((eventFlags[i] & kFSEventsModified) != 0 &&
-          (eventFlags[i] & kFSEventsRenamed) == 0)
-        event->events = UV_CHANGE;
-      else
-        event->events = UV_RENAME;
+    if ((eventFlags[i] & kFSEventsModified) != 0 &&
+        (eventFlags[i] & kFSEventsRenamed) == 0)
+      event->events = UV_CHANGE;
+    else
+      event->events = UV_RENAME;
 
-      if (tail != NULL)
-        tail->next = event;
-      tail = event;
-    }
-
-    if (tail != NULL) {
-      uv_mutex_lock(&handle->cf_mutex);
-      tail->next = handle->cf_event;
-      handle->cf_event = tail;
-      uv_mutex_unlock(&handle->cf_mutex);
-
-      uv_async_send(handle->cf_cb);
-    }
+    ngx_queue_insert_tail(&add_list, &event->member);
   }
+  uv_mutex_lock(&handle->cf_mutex);
+  ngx_queue_add(&handle->cf_events, &add_list);
+  uv_mutex_unlock(&handle->cf_mutex);
+
+  uv_async_send(handle->cf_cb);
 }
 
 
-/* Runs in CF thread */
-static void uv__fsevents_create_stream(uv_loop_t* loop, CFArrayRef paths) {
-  uv__cf_loop_state_t* state;
+void uv__fsevents_schedule(void* arg) {
+  uv_fs_event_t* handle;
+
+  handle = arg;
+  FSEventStreamScheduleWithRunLoop(handle->cf_eventstream,
+                                   handle->loop->cf_loop,
+                                   kCFRunLoopDefaultMode);
+  FSEventStreamStart(handle->cf_eventstream);
+  uv_sem_post(&handle->cf_sem);
+}
+
+
+int uv__fsevents_init(uv_fs_event_t* handle) {
   FSEventStreamContext ctx;
   FSEventStreamRef ref;
+  CFStringRef path;
+  CFArrayRef paths;
   CFAbsoluteTime latency;
   FSEventStreamCreateFlags flags;
 
   /* Initialize context */
   ctx.version = 0;
-  ctx.info = loop;
+  ctx.info = handle;
   ctx.retain = NULL;
   ctx.release = NULL;
   ctx.copyDescription = NULL;
+
+  /* Get absolute path to file */
+  handle->realpath = realpath(handle->filename, NULL);
+  if (handle->realpath != NULL)
+    handle->realpath_len = strlen(handle->realpath);
+
+  /* Initialize paths array */
+  path = CFStringCreateWithFileSystemRepresentation(NULL, handle->filename);
+  paths = CFArrayCreate(NULL, (const void**)&path, 1, NULL);
 
   latency = 0.15;
 
   /* Set appropriate flags */
   flags = kFSEventStreamCreateFlagFileEvents;
 
+<<<<<<< HEAD
   /*
    * NOTE: It might sound like a good idea to remember last seen StreamEventId,
    * but in reality one dir might have last StreamEventId less than, the other,
@@ -719,26 +787,42 @@ int uv__fsevents_init(uv_fs_event_t* handle) {
 
   /* Initialize singly-linked list */
   handle->cf_event = NULL;
+=======
+  ref = FSEventStreamCreate(NULL,
+                            &uv__fsevents_event_cb,
+                            &ctx,
+                            paths,
+                            kFSEventStreamEventIdSinceNow,
+                            latency,
+                            flags);
+  handle->cf_eventstream = ref;
+>>>>>>> upstream/v0.10.24-release
 
   /*
    * Events will occur in other thread.
    * Initialize callback for getting them back into event loop's thread
    */
   handle->cf_cb = malloc(sizeof(*handle->cf_cb));
+<<<<<<< HEAD
   if (handle->cf_cb == NULL) {
     err = -ENOMEM;
     goto fail_cf_cb_malloc;
   }
+=======
+  if (handle->cf_cb == NULL)
+    return uv__set_sys_error(handle->loop, ENOMEM);
+>>>>>>> upstream/v0.10.24-release
 
   handle->cf_cb->data = handle;
   uv_async_init(handle->loop, handle->cf_cb, uv__fsevents_cb);
   handle->cf_cb->flags |= UV__HANDLE_INTERNAL;
   uv_unref((uv_handle_t*) handle->cf_cb);
 
-  err = uv_mutex_init(&handle->cf_mutex);
-  if (err)
-    goto fail_cf_mutex_init;
+  uv_mutex_init(&handle->cf_mutex);
+  uv_sem_init(&handle->cf_sem, 0);
+  ngx_queue_init(&handle->cf_events);
 
+<<<<<<< HEAD
   /* Insert handle into the list */
   state = handle->loop->cf_state;
   uv_mutex_lock(&state->fsevent_mutex);
@@ -752,33 +836,22 @@ int uv__fsevents_init(uv_fs_event_t* handle) {
   err = uv__cf_loop_signal(handle->loop, handle);
   if (err)
     goto fail_loop_signal;
+=======
+  uv__cf_loop_signal(handle->loop, uv__fsevents_schedule, handle);
+>>>>>>> upstream/v0.10.24-release
 
   return 0;
-
-fail_loop_signal:
-  uv_mutex_destroy(&handle->cf_mutex);
-
-fail_cf_mutex_init:
-  free(handle->cf_cb);
-  handle->cf_cb = NULL;
-
-fail_cf_cb_malloc:
-  free(handle->realpath);
-  handle->realpath = NULL;
-  handle->realpath_len = 0;
-
-  return err;
 }
 
 
-/* Runs in UV loop to de-initialize handle */
 int uv__fsevents_close(uv_fs_event_t* handle) {
-  int err;
-  uv__cf_loop_state_t* state;
+  if (handle->cf_eventstream == NULL)
+    return -1;
 
-  if (handle->cf_cb == NULL)
-    return -EINVAL;
+  /* Ensure that event stream was scheduled */
+  uv_sem_wait(&handle->cf_sem);
 
+<<<<<<< HEAD
   /* Remove handle from  the list */
   state = handle->loop->cf_state;
   uv_mutex_lock(&state->fsevent_mutex);
@@ -792,19 +865,25 @@ int uv__fsevents_close(uv_fs_event_t* handle) {
   err = uv__cf_loop_signal(handle->loop, handle);
   if (err)
     return -err;
+=======
+  /* Stop emitting events */
+  FSEventStreamStop(handle->cf_eventstream);
+>>>>>>> upstream/v0.10.24-release
 
-  /* Wait for deinitialization */
-  uv_sem_wait(&state->fsevent_sem);
+  /* Release stream */
+  FSEventStreamInvalidate(handle->cf_eventstream);
+  FSEventStreamRelease(handle->cf_eventstream);
+  handle->cf_eventstream = NULL;
 
   uv_close((uv_handle_t*) handle->cf_cb, (uv_close_cb) free);
-  handle->cf_cb = NULL;
 
   /* Free data in queue */
-  UV__FSEVENTS_PROCESS(handle, {
+  UV__FSEVENTS_WALK(handle, {
     /* NOP */
-  });
+  })
 
   uv_mutex_destroy(&handle->cf_mutex);
+  uv_sem_destroy(&handle->cf_sem);
   free(handle->realpath);
   handle->realpath = NULL;
   handle->realpath_len = 0;

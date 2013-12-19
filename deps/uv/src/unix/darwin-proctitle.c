@@ -55,6 +55,7 @@ int uv__set_process_title(const char* title) {
 #if TARGET_OS_IPHONE
   return uv__pthread_setname_np(title);
 #else
+<<<<<<< HEAD
   CFStringRef (*pCFStringCreateWithCString)(CFAllocatorRef,
                                             const char*,
                                             CFStringEncoding);
@@ -70,10 +71,22 @@ int uv__set_process_title(const char* title) {
                                                CFDictionaryRef*);
   void* application_services_handle;
   void* core_foundation_handle;
+=======
+  typedef CFTypeRef (*LSGetCurrentApplicationASNType)(void);
+  typedef OSStatus (*LSSetApplicationInformationItemType)(int,
+                                                          CFTypeRef,
+                                                          CFStringRef,
+                                                          CFStringRef,
+                                                          CFDictionaryRef*);
+  typedef CFDictionaryRef (*LSApplicationCheckInType)(int, CFDictionaryRef);
+  typedef OSStatus (*SetApplicationIsDaemonType)(int);
+  typedef void (*LSSetApplicationLaunchServicesServerConnectionStatusType)(
+      uint64_t, void*);
+>>>>>>> upstream/v0.10.24-release
   CFBundleRef launch_services_bundle;
   CFStringRef* display_name_key;
-  ProcessSerialNumber psn;
   CFTypeRef asn;
+<<<<<<< HEAD
   int err;
 
   err = -ENOENT;
@@ -109,6 +122,15 @@ int uv__set_process_title(const char* title) {
   }
 
 #define S(s) pCFStringCreateWithCString(NULL, (s), kCFStringEncodingUTF8)
+=======
+  CFStringRef display_name;
+  OSStatus err;
+  CFBundleRef hi_services_bundle;
+  LSApplicationCheckInType ls_application_check_in;
+  SetApplicationIsDaemonType set_application_is_daemon;
+  LSSetApplicationLaunchServicesServerConnectionStatusType
+      ls_set_application_launch_services_server_connection_status;
+>>>>>>> upstream/v0.10.24-release
 
   launch_services_bundle =
       pCFBundleGetBundleWithIdentifier(S("com.apple.LaunchServices"));
@@ -136,6 +158,7 @@ int uv__set_process_title(const char* title) {
   if (display_name_key == NULL || *display_name_key == NULL)
     goto out;
 
+<<<<<<< HEAD
   /* Force the process manager to initialize. */
   pGetCurrentProcess(&psn);
 
@@ -156,6 +179,38 @@ int uv__set_process_title(const char* title) {
 out:
   if (core_foundation_handle != NULL)
     dlclose(core_foundation_handle);
+=======
+  /* Black 10.9 magic, to remove (Not responding) mark in Activity Monitor */
+  hi_services_bundle =
+      CFBundleGetBundleWithIdentifier(CFSTR("com.apple.HIServices"));
+  if (hi_services_bundle == NULL)
+    return -1;
+
+  set_application_is_daemon = CFBundleGetFunctionPointerForName(
+      hi_services_bundle,
+      CFSTR("SetApplicationIsDaemon"));
+  ls_application_check_in = CFBundleGetFunctionPointerForName(
+      launch_services_bundle,
+      CFSTR("_LSApplicationCheckIn"));
+  ls_set_application_launch_services_server_connection_status =
+      CFBundleGetFunctionPointerForName(
+          launch_services_bundle,
+          CFSTR("_LSSetApplicationLaunchServicesServerConnectionStatus"));
+  if (set_application_is_daemon == NULL ||
+      ls_application_check_in == NULL ||
+      ls_set_application_launch_services_server_connection_status == NULL) {
+    return -1;
+  }
+
+  if (set_application_is_daemon(1) != noErr)
+    return -1;
+
+  ls_set_application_launch_services_server_connection_status(0, NULL);
+
+  /* Check into process manager?! */
+  ls_application_check_in(-2,
+                          CFBundleGetInfoDictionary(CFBundleGetMainBundle()));
+>>>>>>> upstream/v0.10.24-release
 
   if (application_services_handle != NULL)
     dlclose(application_services_handle);

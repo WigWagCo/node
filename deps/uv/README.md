@@ -83,13 +83,23 @@ Unix users run:
 
 Macintosh users run:
 
+<<<<<<< HEAD
     $ ./gyp_uv -f xcode
     $ xcodebuild -project uv.xcodeproj -configuration Release -target All
+=======
+    ./gyp_uv.py -f make
+    make -C out
+>>>>>>> upstream/v0.10.24-release
 
 To build for android:
 
+<<<<<<< HEAD
     $ source ./android-configure NDK_PATH gyp
     $ make -C out
+=======
+    ./gyp_uv.py -f xcode
+    xcodebuild -project uv.xcodeproj -configuration Release -target All
+>>>>>>> upstream/v0.10.24-release
 
 Note for UNIX users: compile your project with `-D_LARGEFILE_SOURCE` and
 `-D_FILE_OFFSET_BITS=64`. GYP builds take care of that automatically.

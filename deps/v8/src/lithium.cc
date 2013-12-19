@@ -233,6 +233,7 @@ void LPointerMap::PrintTo(StringStream* stream) {
 }
 
 
+<<<<<<< HEAD
 int ElementsKindToShiftSize(ElementsKind elements_kind) {
   switch (elements_kind) {
     case EXTERNAL_BYTE_ELEMENTS:
@@ -285,6 +286,8 @@ LChunk::LChunk(CompilationInfo* info, HGraph* graph)
 }
 
 
+=======
+>>>>>>> upstream/v0.10.24-release
 LLabel* LChunk::GetLabel(int block_id) const {
   HBasicBlock* block = graph_->blocks()->at(block_id);
   int first_instruction = block->first_instruction_index();

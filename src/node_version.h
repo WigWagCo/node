@@ -23,10 +23,15 @@
 #define SRC_NODE_VERSION_H_
 
 #define NODE_MAJOR_VERSION 0
+<<<<<<< HEAD
 #define NODE_MINOR_VERSION 11
 #define NODE_PATCH_VERSION 8
+=======
+#define NODE_MINOR_VERSION 10
+#define NODE_PATCH_VERSION 24
+>>>>>>> upstream/v0.10.24-release
 
-#define NODE_VERSION_IS_RELEASE 0
+#define NODE_VERSION_IS_RELEASE 1
 
 #ifndef NODE_TAG
 # define NODE_TAG ""

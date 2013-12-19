@@ -305,8 +305,14 @@ void StreamWrap::WriteStringImpl(const FunctionCallbackInfo<Value>& args) {
   }
 
   req_wrap->Dispatched();
+<<<<<<< HEAD
   req_wrap->object()->Set(env->bytes_string(),
                           Number::New(node_isolate, data_size));
+=======
+  req_wrap->object_->Set(bytes_sym, Integer::NewFromUnsigned(data_size));
+
+  wrap->UpdateWriteQueueSize();
+>>>>>>> upstream/v0.10.24-release
 
   if (err) {
     req_wrap->~WriteWrap();

@@ -794,6 +794,7 @@ class LChunk: public ZoneObject {
 };
 
 
+<<<<<<< HEAD
 int ElementsKindToShiftSize(ElementsKind elements_kind);
 int StackSlotOffset(int index);
 
@@ -817,6 +818,8 @@ class LPhase : public CompilationPhase {
 };
 
 
+=======
+>>>>>>> upstream/v0.10.24-release
 } }  // namespace v8::internal
 
 #endif  // V8_LITHIUM_H_

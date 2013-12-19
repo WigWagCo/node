@@ -19879,6 +19879,7 @@ THREADED_TEST(Regress157124) {
 }
 
 
+<<<<<<< HEAD
 THREADED_TEST(Regress2535) {
   i::FLAG_harmony_collections = true;
   LocalContext context;
@@ -19935,6 +19936,8 @@ THREADED_TEST(JSONParseNumber) {
 }
 
 
+=======
+>>>>>>> upstream/v0.10.24-release
 #ifndef WIN32
 class ThreadInterruptTest {
  public:

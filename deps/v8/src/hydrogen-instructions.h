@@ -5699,6 +5699,7 @@ class ArrayInstructionInterface {
   virtual HValue* GetKey() = 0;
   virtual void SetKey(HValue* key) = 0;
   virtual void SetIndexOffset(uint32_t index_offset) = 0;
+  virtual int MaxIndexOffsetBits() = 0;
   virtual bool IsDehoisted() = 0;
   virtual void SetDehoisted(bool is_dehoisted) = 0;
   virtual ~ArrayInstructionInterface() { };
@@ -5738,6 +5739,7 @@ class HLoadKeyed
   void SetIndexOffset(uint32_t index_offset) {
     bit_field_ = IndexOffsetField::update(bit_field_, index_offset);
   }
+  int MaxIndexOffsetBits() { return 25; }
   HValue* GetKey() { return key(); }
   void SetKey(HValue* key) { SetOperandAt(1, key); }
   bool IsDehoisted() { return IsDehoistedField::decode(bit_field_); }
@@ -5800,7 +5802,93 @@ class HLoadKeyed
     bit_field_ = ElementsKindField::encode(elements_kind) |
         HoleModeField::encode(mode);
 
+<<<<<<< HEAD
     SetOperandAt(0, obj);
+=======
+  class ElementsKindField:  public BitField<ElementsKind, 0, 4> {};
+  class IndexOffsetField:   public BitField<uint32_t, 4, 27> {};
+  class IsDehoistedField:   public BitField<bool, 31, 1> {};
+  uint32_t bit_field_;
+};
+
+
+enum HoleCheckMode { PERFORM_HOLE_CHECK, OMIT_HOLE_CHECK };
+
+
+class HLoadKeyedFastDoubleElement
+    : public HTemplateInstruction<3>, public ArrayInstructionInterface {
+ public:
+  HLoadKeyedFastDoubleElement(
+    HValue* elements,
+    HValue* key,
+    HValue* dependency,
+    HoleCheckMode hole_check_mode = PERFORM_HOLE_CHECK)
+      : index_offset_(0),
+        is_dehoisted_(false),
+        hole_check_mode_(hole_check_mode) {
+    SetOperandAt(0, elements);
+    SetOperandAt(1, key);
+    SetOperandAt(2, dependency);
+    set_representation(Representation::Double());
+    SetGVNFlag(kDependsOnDoubleArrayElements);
+    SetFlag(kUseGVN);
+  }
+
+  HValue* elements() { return OperandAt(0); }
+  HValue* key() { return OperandAt(1); }
+  HValue* dependency() { return OperandAt(2); }
+  uint32_t index_offset() { return index_offset_; }
+  void SetIndexOffset(uint32_t index_offset) { index_offset_ = index_offset; }
+  int MaxIndexOffsetBits() { return 25; }
+  HValue* GetKey() { return key(); }
+  void SetKey(HValue* key) { SetOperandAt(1, key); }
+  bool IsDehoisted() { return is_dehoisted_; }
+  void SetDehoisted(bool is_dehoisted) { is_dehoisted_ = is_dehoisted; }
+
+  virtual Representation RequiredInputRepresentation(int index) {
+    // The key is supposed to be Integer32.
+    if (index == 0) return Representation::Tagged();
+    if (index == 1) return Representation::Integer32();
+    return Representation::None();
+  }
+
+  bool RequiresHoleCheck() const {
+    return hole_check_mode_ == PERFORM_HOLE_CHECK;
+  }
+
+  virtual void PrintDataTo(StringStream* stream);
+
+  DECLARE_CONCRETE_INSTRUCTION(LoadKeyedFastDoubleElement)
+
+ protected:
+  virtual bool DataEquals(HValue* other) {
+    if (!other->IsLoadKeyedFastDoubleElement()) return false;
+    HLoadKeyedFastDoubleElement* other_load =
+        HLoadKeyedFastDoubleElement::cast(other);
+    return hole_check_mode_ == other_load->hole_check_mode_;
+  }
+
+ private:
+  virtual bool IsDeletable() const { return !RequiresHoleCheck(); }
+
+  uint32_t index_offset_;
+  bool is_dehoisted_;
+  HoleCheckMode hole_check_mode_;
+};
+
+
+class HLoadKeyedSpecializedArrayElement
+    : public HTemplateInstruction<3>, public ArrayInstructionInterface {
+ public:
+  HLoadKeyedSpecializedArrayElement(HValue* external_elements,
+                                    HValue* key,
+                                    HValue* dependency,
+                                    ElementsKind elements_kind)
+      :  elements_kind_(elements_kind),
+         index_offset_(0),
+         is_dehoisted_(false) {
+    SetOperandAt(0, external_elements);
+>>>>>>> upstream/v0.10.24-release
     SetOperandAt(1, key);
     SetOperandAt(2, dependency != NULL ? dependency : obj);
 
@@ -5845,12 +5933,30 @@ class HLoadKeyed
     return !RequiresHoleCheck();
   }
 
+<<<<<<< HEAD
   // Establish some checks around our packed fields
   enum LoadKeyedBits {
     kBitsForElementsKind = 5,
     kBitsForHoleMode = 1,
     kBitsForIndexOffset = 25,
     kBitsForIsDehoisted = 1,
+=======
+  HValue* external_pointer() { return OperandAt(0); }
+  HValue* key() { return OperandAt(1); }
+  HValue* dependency() { return OperandAt(2); }
+  ElementsKind elements_kind() const { return elements_kind_; }
+  uint32_t index_offset() { return index_offset_; }
+  void SetIndexOffset(uint32_t index_offset) { index_offset_ = index_offset; }
+  int MaxIndexOffsetBits() { return 25; }
+  HValue* GetKey() { return key(); }
+  void SetKey(HValue* key) { SetOperandAt(1, key); }
+  bool IsDehoisted() { return is_dehoisted_; }
+  void SetDehoisted(bool is_dehoisted) { is_dehoisted_ = is_dehoisted; }
+
+  virtual Range* InferRange(Zone* zone);
+
+  DECLARE_CONCRETE_INSTRUCTION(LoadKeyedSpecializedArrayElement)
+>>>>>>> upstream/v0.10.24-release
 
     kStartElementsKind = 0,
     kStartHoleMode = kStartElementsKind + kBitsForElementsKind,
@@ -6046,6 +6152,7 @@ class HStoreKeyed
                                  ElementsKind);
 
   virtual Representation RequiredInputRepresentation(int index) {
+<<<<<<< HEAD
     // kind_fast:       tagged[int32] = tagged
     // kind_double:     tagged[int32] = double
     // kind_smi   :     tagged[int32] = smi
@@ -6056,6 +6163,33 @@ class HStoreKeyed
     } else if (index == 1) {
       return ArrayInstructionInterface::KeyedAccessIndexRequirement(
           OperandAt(1)->representation());
+=======
+    // The key is supposed to be Integer32.
+    return index == 1
+        ? Representation::Integer32()
+        : Representation::Tagged();
+  }
+
+  HValue* object() { return OperandAt(0); }
+  HValue* key() { return OperandAt(1); }
+  HValue* value() { return OperandAt(2); }
+  bool value_is_smi() {
+    return IsFastSmiElementsKind(elements_kind_);
+  }
+  uint32_t index_offset() { return index_offset_; }
+  void SetIndexOffset(uint32_t index_offset) { index_offset_ = index_offset; }
+  int MaxIndexOffsetBits() { return 25; }
+  HValue* GetKey() { return key(); }
+  void SetKey(HValue* key) { SetOperandAt(1, key); }
+  bool IsDehoisted() { return is_dehoisted_; }
+  void SetDehoisted(bool is_dehoisted) { is_dehoisted_ = is_dehoisted; }
+
+  bool NeedsWriteBarrier() {
+    if (value_is_smi()) {
+      return false;
+    } else {
+      return StoringValueNeedsWriteBarrier(value());
+>>>>>>> upstream/v0.10.24-release
     }
 
     ASSERT_EQ(index, 2);
@@ -6102,6 +6236,7 @@ class HStoreKeyed
   ElementsKind elements_kind() const { return elements_kind_; }
   uint32_t index_offset() { return index_offset_; }
   void SetIndexOffset(uint32_t index_offset) { index_offset_ = index_offset; }
+  int MaxIndexOffsetBits() { return 25; }
   HValue* GetKey() { return key(); }
   void SetKey(HValue* key) { SetOperandAt(1, key); }
   bool IsDehoisted() { return is_dehoisted_; }
@@ -6164,6 +6299,24 @@ class HStoreKeyed
     } else {
       SetGVNFlag(kChangesArrayElements);
     }
+<<<<<<< HEAD
+=======
+  }
+
+  HValue* external_pointer() { return OperandAt(0); }
+  HValue* key() { return OperandAt(1); }
+  HValue* value() { return OperandAt(2); }
+  ElementsKind elements_kind() const { return elements_kind_; }
+  uint32_t index_offset() { return index_offset_; }
+  void SetIndexOffset(uint32_t index_offset) { index_offset_ = index_offset; }
+  int MaxIndexOffsetBits() {
+    return 31 - ElementsKindToShiftSize(elements_kind_);
+  }
+  HValue* GetKey() { return key(); }
+  void SetKey(HValue* key) { SetOperandAt(1, key); }
+  bool IsDehoisted() { return is_dehoisted_; }
+  void SetDehoisted(bool is_dehoisted) { is_dehoisted_ = is_dehoisted; }
+>>>>>>> upstream/v0.10.24-release
 
     // EXTERNAL_{UNSIGNED_,}{BYTE,SHORT,INT}_ELEMENTS are truncating.
     if (elements_kind >= EXTERNAL_BYTE_ELEMENTS &&

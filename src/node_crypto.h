@@ -235,6 +235,7 @@ class Connection : public SSLWrap<Connection>, public ObjectWrap {
 #endif
 
  protected:
+<<<<<<< HEAD
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void EncIn(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void ClearOut(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -245,6 +246,42 @@ class Connection : public SSLWrap<Connection>, public ObjectWrap {
   static void Shutdown(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Start(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
+=======
+  static v8::Handle<v8::Value> New(const v8::Arguments& args);
+  static v8::Handle<v8::Value> EncIn(const v8::Arguments& args);
+  static v8::Handle<v8::Value> ClearOut(const v8::Arguments& args);
+  static v8::Handle<v8::Value> ClearPending(const v8::Arguments& args);
+  static v8::Handle<v8::Value> EncPending(const v8::Arguments& args);
+  static v8::Handle<v8::Value> EncOut(const v8::Arguments& args);
+  static v8::Handle<v8::Value> ClearIn(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetPeerCertificate(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> SetSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> LoadSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> IsSessionReused(const v8::Arguments& args);
+  static v8::Handle<v8::Value> IsInitFinished(const v8::Arguments& args);
+  static v8::Handle<v8::Value> VerifyError(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetCurrentCipher(const v8::Arguments& args);
+  static v8::Handle<v8::Value> Shutdown(const v8::Arguments& args);
+  static v8::Handle<v8::Value> Start(const v8::Arguments& args);
+  static v8::Handle<v8::Value> Close(const v8::Arguments& args);
+
+  static void InitNPN(SecureContext* sc, bool is_server);
+
+#ifdef OPENSSL_NPN_NEGOTIATED
+  // NPN
+  static v8::Handle<v8::Value> GetNegotiatedProto(const v8::Arguments& args);
+  static v8::Handle<v8::Value> SetNPNProtocols(const v8::Arguments& args);
+  static int AdvertiseNextProtoCallback_(SSL *s,
+                                         const unsigned char **data,
+                                         unsigned int *len,
+                                         void *arg);
+  static int SelectNextProtoCallback_(SSL *s,
+                                      unsigned char **out, unsigned char *outlen,
+                                      const unsigned char* in,
+                                      unsigned int inlen, void *arg);
+#endif
+>>>>>>> upstream/v0.10.24-release
 
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
   // SNI

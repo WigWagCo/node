@@ -565,8 +565,14 @@
         err = process._kill(pid, 0);
       } else {
         sig = sig || 'SIGTERM';
+<<<<<<< HEAD
         if (startup.lazyConstants()[sig]) {
           err = process._kill(pid, startup.lazyConstants()[sig]);
+=======
+        if (startup.lazyConstants()[sig] &&
+            sig.slice(0, 3) === 'SIG') {
+          r = process._kill(pid, startup.lazyConstants()[sig]);
+>>>>>>> upstream/v0.10.24-release
         } else {
           throw new Error('Unknown signal: ' + sig);
         }

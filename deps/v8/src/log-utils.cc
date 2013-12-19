@@ -78,7 +78,55 @@ void Log::Initialize(const char* log_file_name) {
     } else if (strcmp(log_file_name, kLogToTemporaryFile) == 0) {
       OpenTemporaryFile();
     } else {
+<<<<<<< HEAD
       OpenFile(log_file_name);
+=======
+      if (strchr(FLAG_logfile, '%') != NULL ||
+          !Isolate::Current()->IsDefaultIsolate()) {
+        // If there's a '%' in the log file name we have to expand
+        // placeholders.
+        HeapStringAllocator allocator;
+        StringStream stream(&allocator);
+        AddIsolateIdIfNeeded(&stream);
+        for (const char* p = FLAG_logfile; *p; p++) {
+          if (*p == '%') {
+            p++;
+            switch (*p) {
+              case '\0':
+                // If there's a % at the end of the string we back up
+                // one character so we can escape the loop properly.
+                p--;
+                break;
+              case 'p':
+                // %p expands to the process ID.
+                stream.Add("%d", OS::GetCurrentProcessId());
+                break;
+              case 't': {
+                // %t expands to the current time in milliseconds.
+                double time = OS::TimeCurrentMillis();
+                stream.Add("%.0f", FmtElm(time));
+                break;
+              }
+              case '%':
+                // %% expands (contracts really) to %.
+                stream.Put('%');
+                break;
+              default:
+                // All other %'s expand to themselves.
+                stream.Put('%');
+                stream.Put(*p);
+                break;
+            }
+          } else {
+            stream.Put(*p);
+          }
+        }
+        SmartArrayPointer<const char> expanded = stream.ToCString();
+        OpenFile(*expanded);
+      } else {
+        OpenFile(FLAG_logfile);
+      }
+>>>>>>> upstream/v0.10.24-release
     }
   }
 }

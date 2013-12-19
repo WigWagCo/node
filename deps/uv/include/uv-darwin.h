@@ -36,8 +36,8 @@
 
 #define UV_PLATFORM_LOOP_FIELDS                                               \
   uv_thread_t cf_thread;                                                      \
-  void* _cf_reserved;                                                         \
-  void* cf_state;                                                             \
+  void* cf_cb;                                                                \
+  void* cf_loop;                                                              \
   uv_mutex_t cf_mutex;                                                        \
   uv_sem_t cf_sem;                                                            \
   void* cf_signals[2];                                                        \
@@ -47,10 +47,15 @@
   char* realpath;                                                             \
   int realpath_len;                                                           \
   int cf_flags;                                                               \
-  void* cf_event;                                                             \
+  void* cf_eventstream;                                                       \
   uv_async_t* cf_cb;                                                          \
+<<<<<<< HEAD:deps/uv/include/uv-darwin.h
   void* cf_member[2];                                                         \
   uv_sem_t _cf_reserved;                                                      \
+=======
+  ngx_queue_t cf_events;                                                      \
+  uv_sem_t cf_sem;                                                            \
+>>>>>>> upstream/v0.10.24-release:deps/uv/include/uv-private/uv-darwin.h
   uv_mutex_t cf_mutex;                                                        \
 
 #define UV_STREAM_PRIVATE_PLATFORM_FIELDS                                     \

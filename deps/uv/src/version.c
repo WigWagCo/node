@@ -30,8 +30,13 @@
  */
 
 #define UV_VERSION_MAJOR 0
+<<<<<<< HEAD
 #define UV_VERSION_MINOR 11
 #define UV_VERSION_PATCH 13
+=======
+#define UV_VERSION_MINOR 10
+#define UV_VERSION_PATCH 21
+>>>>>>> upstream/v0.10.24-release
 #define UV_VERSION_IS_RELEASE 1
 
 
