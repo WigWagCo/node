@@ -51,13 +51,14 @@ RegExpStack::RegExpStack()
 
 
 RegExpStack::~RegExpStack() {
-  thread_local_.Free();
 }
 
 
 char* RegExpStack::ArchiveStack(char* to) {
   size_t size = sizeof(thread_local_);
-  OS::MemCopy(reinterpret_cast<void*>(to), &thread_local_, size);
+  memcpy(reinterpret_cast<void*>(to),
+         &thread_local_,
+         size);
   thread_local_ = ThreadLocal();
   return to + size;
 }
@@ -65,7 +66,7 @@ char* RegExpStack::ArchiveStack(char* to) {
 
 char* RegExpStack::RestoreStack(char* from) {
   size_t size = sizeof(thread_local_);
-  OS::MemCopy(&thread_local_, reinterpret_cast<void*>(from), size);
+  memcpy(&thread_local_, reinterpret_cast<void*>(from), size);
   return from + size;
 }
 
@@ -93,11 +94,10 @@ Address RegExpStack::EnsureCapacity(size_t size) {
     Address new_memory = NewArray<byte>(static_cast<int>(size));
     if (thread_local_.memory_size_ > 0) {
       // Copy original memory into top of new memory.
-      OS::MemCopy(
-          reinterpret_cast<void*>(
-              new_memory + size - thread_local_.memory_size_),
-          reinterpret_cast<void*>(thread_local_.memory_),
-          thread_local_.memory_size_);
+      memcpy(reinterpret_cast<void*>(
+          new_memory + size - thread_local_.memory_size_),
+             reinterpret_cast<void*>(thread_local_.memory_),
+             thread_local_.memory_size_);
       DeleteArray(thread_local_.memory_);
     }
     thread_local_.memory_ = new_memory;

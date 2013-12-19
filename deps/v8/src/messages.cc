@@ -38,15 +38,14 @@ namespace internal {
 
 // If no message listeners have been registered this one is called
 // by default.
-void MessageHandler::DefaultMessageReport(Isolate* isolate,
-                                          const MessageLocation* loc,
+void MessageHandler::DefaultMessageReport(const MessageLocation* loc,
                                           Handle<Object> message_obj) {
-  SmartArrayPointer<char> str = GetLocalizedMessage(isolate, message_obj);
+  SmartArrayPointer<char> str = GetLocalizedMessage(message_obj);
   if (loc == NULL) {
     PrintF("%s\n", *str);
   } else {
-    HandleScope scope(isolate);
-    Handle<Object> data(loc->script()->name(), isolate);
+    HandleScope scope;
+    Handle<Object> data(loc->script()->name());
     SmartArrayPointer<char> data_str;
     if (data->IsString())
       data_str = Handle<String>::cast(data)->ToCString(DISALLOW_NULLS);
@@ -57,25 +56,23 @@ void MessageHandler::DefaultMessageReport(Isolate* isolate,
 
 
 Handle<JSMessageObject> MessageHandler::MakeMessageObject(
-    Isolate* isolate,
     const char* type,
     MessageLocation* loc,
     Vector< Handle<Object> > args,
     Handle<String> stack_trace,
     Handle<JSArray> stack_frames) {
-  Factory* factory = isolate->factory();
-  Handle<String> type_handle = factory->InternalizeUtf8String(type);
+  Handle<String> type_handle = FACTORY->LookupAsciiSymbol(type);
   Handle<FixedArray> arguments_elements =
-      factory->NewFixedArray(args.length());
+      FACTORY->NewFixedArray(args.length());
   for (int i = 0; i < args.length(); i++) {
     arguments_elements->set(i, *args[i]);
   }
   Handle<JSArray> arguments_handle =
-      factory->NewJSArrayWithElements(arguments_elements);
+      FACTORY->NewJSArrayWithElements(arguments_elements);
 
   int start = 0;
   int end = 0;
-  Handle<Object> script_handle = factory->undefined_value();
+  Handle<Object> script_handle = FACTORY->undefined_value();
   if (loc) {
     start = loc->start_pos();
     end = loc->end_pos();
@@ -83,15 +80,15 @@ Handle<JSMessageObject> MessageHandler::MakeMessageObject(
   }
 
   Handle<Object> stack_trace_handle = stack_trace.is_null()
-      ? Handle<Object>::cast(factory->undefined_value())
+      ? Handle<Object>::cast(FACTORY->undefined_value())
       : Handle<Object>::cast(stack_trace);
 
   Handle<Object> stack_frames_handle = stack_frames.is_null()
-      ? Handle<Object>::cast(factory->undefined_value())
+      ? Handle<Object>::cast(FACTORY->undefined_value())
       : Handle<Object>::cast(stack_frames);
 
   Handle<JSMessageObject> message =
-      factory->NewJSMessageObject(type_handle,
+      FACTORY->NewJSMessageObject(type_handle,
                                   arguments_handle,
                                   start,
                                   end,
@@ -115,7 +112,7 @@ void MessageHandler::ReportMessage(Isolate* isolate,
   if (isolate->has_pending_exception()) {
     isolate->pending_exception()->ToObject(&exception_object);
   }
-  Handle<Object> exception_handle(exception_object, isolate);
+  Handle<Object> exception_handle(exception_object);
 
   Isolate::ExceptionScope exception_scope(isolate);
   isolate->clear_pending_exception();
@@ -124,10 +121,10 @@ void MessageHandler::ReportMessage(Isolate* isolate,
   v8::Local<v8::Message> api_message_obj = v8::Utils::MessageToLocal(message);
   v8::Local<v8::Value> api_exception_obj = v8::Utils::ToLocal(exception_handle);
 
-  v8::NeanderArray global_listeners(isolate->factory()->message_listeners());
+  v8::NeanderArray global_listeners(FACTORY->message_listeners());
   int global_length = global_listeners.length();
   if (global_length == 0) {
-    DefaultMessageReport(isolate, loc, message);
+    DefaultMessageReport(loc, message);
     if (isolate->has_scheduled_exception()) {
       isolate->clear_scheduled_exception();
     }
@@ -155,30 +152,25 @@ void MessageHandler::ReportMessage(Isolate* isolate,
 }
 
 
-Handle<String> MessageHandler::GetMessage(Isolate* isolate,
-                                          Handle<Object> data) {
-  Factory* factory = isolate->factory();
-  Handle<String> fmt_str =
-      factory->InternalizeOneByteString(STATIC_ASCII_VECTOR("FormatMessage"));
+Handle<String> MessageHandler::GetMessage(Handle<Object> data) {
+  Handle<String> fmt_str = FACTORY->LookupAsciiSymbol("FormatMessage");
   Handle<JSFunction> fun =
       Handle<JSFunction>(
           JSFunction::cast(
-              isolate->js_builtins_object()->
+              Isolate::Current()->js_builtins_object()->
               GetPropertyNoExceptionThrown(*fmt_str)));
-  Handle<JSMessageObject> message = Handle<JSMessageObject>::cast(data);
-  Handle<Object> argv[] = { Handle<Object>(message->type(), isolate),
-                            Handle<Object>(message->arguments(), isolate) };
+  Handle<Object> argv[] = { data };
 
   bool caught_exception;
   Handle<Object> result =
       Execution::TryCall(fun,
-                         isolate->js_builtins_object(),
+                         Isolate::Current()->js_builtins_object(),
                          ARRAY_SIZE(argv),
                          argv,
                          &caught_exception);
 
   if (caught_exception || !result->IsString()) {
-    return factory->InternalizeOneByteString(STATIC_ASCII_VECTOR("<error>"));
+    return FACTORY->LookupAsciiSymbol("<error>");
   }
   Handle<String> result_string = Handle<String>::cast(result);
   // A string that has been obtained from JS code in this way is
@@ -192,10 +184,9 @@ Handle<String> MessageHandler::GetMessage(Isolate* isolate,
 
 
 SmartArrayPointer<char> MessageHandler::GetLocalizedMessage(
-    Isolate* isolate,
     Handle<Object> data) {
-  HandleScope scope(isolate);
-  return GetMessage(isolate, data)->ToCString(DISALLOW_NULLS);
+  HandleScope scope;
+  return GetMessage(data)->ToCString(DISALLOW_NULLS);
 }
 
 

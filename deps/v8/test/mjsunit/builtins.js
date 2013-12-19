@@ -54,9 +54,7 @@ function checkConstructor(func, name) {
   assertFalse(proto_desc.writable, name);
   assertFalse(proto_desc.configurable, name);
   var prototype = proto_desc.value;
-  assertEquals(name == "GeneratorFunctionPrototype" ? Object.prototype : null,
-               Object.getPrototypeOf(prototype),
-               name);
+  assertEquals(null, prototype.__proto__, name);
   for (var i = 0; i < propNames.length; i++) {
     var propName = propNames[i];
     if (propName == "constructor") continue;

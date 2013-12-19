@@ -52,11 +52,8 @@ class DeclarationContext {
 
   virtual ~DeclarationContext() {
     if (is_initialized_) {
-      Isolate* isolate = Isolate::GetCurrent();
-      HandleScope scope(isolate);
-      Local<Context> context = Local<Context>::New(isolate, context_);
-      context->Exit();
-      context_.Dispose(isolate);
+      context_->Exit();
+      context_.Dispose();
     }
   }
 
@@ -88,13 +85,13 @@ class DeclarationContext {
 
   // The handlers are called as static functions that forward
   // to the instance specific virtual methods.
-  static void HandleGet(Local<String> key,
-                        const v8::PropertyCallbackInfo<v8::Value>& info);
-  static void HandleSet(Local<String> key,
-                        Local<Value> value,
-                        const v8::PropertyCallbackInfo<v8::Value>& info);
-  static void HandleQuery(Local<String> key,
-                          const v8::PropertyCallbackInfo<v8::Integer>& info);
+  static v8::Handle<Value> HandleGet(Local<String> key,
+                                     const AccessorInfo& info);
+  static v8::Handle<Value> HandleSet(Local<String> key,
+                                     Local<Value> value,
+                                     const AccessorInfo& info);
+  static v8::Handle<Integer> HandleQuery(Local<String> key,
+                                         const AccessorInfo& info);
 
  private:
   bool is_initialized_;
@@ -104,7 +101,7 @@ class DeclarationContext {
   int set_count_;
   int query_count_;
 
-  static DeclarationContext* GetInstance(Local<Value> data);
+  static DeclarationContext* GetInstance(const AccessorInfo& info);
 };
 
 
@@ -116,8 +113,7 @@ DeclarationContext::DeclarationContext()
 
 void DeclarationContext::InitializeIfNeeded() {
   if (is_initialized_) return;
-  Isolate* isolate = Isolate::GetCurrent();
-  HandleScope scope(isolate);
+  HandleScope scope;
   Local<FunctionTemplate> function = FunctionTemplate::New();
   Local<Value> data = External::New(this);
   GetHolder(function)->SetNamedPropertyHandler(&HandleGet,
@@ -125,14 +121,10 @@ void DeclarationContext::InitializeIfNeeded() {
                                                &HandleQuery,
                                                0, 0,
                                                data);
-  Local<Context> context = Context::New(isolate,
-                                        0,
-                                        function->InstanceTemplate(),
-                                        Local<Value>());
-  context_.Reset(isolate, context);
-  context->Enter();
+  context_ = Context::New(0, function->InstanceTemplate(), Local<Value>());
+  context_->Enter();
   is_initialized_ = true;
-  PostInitializeContext(context);
+  PostInitializeContext(context_);
 }
 
 
@@ -144,7 +136,7 @@ void DeclarationContext::Check(const char* source,
   // A retry after a GC may pollute the counts, so perform gc now
   // to avoid that.
   HEAP->CollectGarbage(v8::internal::NEW_SPACE);
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
   TryCatch catcher;
   catcher.SetVerbose(true);
   Local<Script> script = Script::Compile(String::New(source));
@@ -169,41 +161,36 @@ void DeclarationContext::Check(const char* source,
       CHECK_EQ(value, catcher.Exception());
     }
   }
-  HEAP->CollectAllAvailableGarbage();  // Clean slate for the next test.
 }
 
 
-void DeclarationContext::HandleGet(
-    Local<String> key,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
-  DeclarationContext* context = GetInstance(info.Data());
+v8::Handle<Value> DeclarationContext::HandleGet(Local<String> key,
+                                                const AccessorInfo& info) {
+  DeclarationContext* context = GetInstance(info);
   context->get_count_++;
-  info.GetReturnValue().Set(context->Get(key));
+  return context->Get(key);
 }
 
 
-void DeclarationContext::HandleSet(
-    Local<String> key,
-    Local<Value> value,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
-  DeclarationContext* context = GetInstance(info.Data());
+v8::Handle<Value> DeclarationContext::HandleSet(Local<String> key,
+                                                Local<Value> value,
+                                                const AccessorInfo& info) {
+  DeclarationContext* context = GetInstance(info);
   context->set_count_++;
-  info.GetReturnValue().Set(context->Set(key, value));
+  return context->Set(key, value);
 }
 
 
-void DeclarationContext::HandleQuery(
-    Local<String> key,
-    const v8::PropertyCallbackInfo<v8::Integer>& info) {
-  DeclarationContext* context = GetInstance(info.Data());
+v8::Handle<Integer> DeclarationContext::HandleQuery(Local<String> key,
+                                                    const AccessorInfo& info) {
+  DeclarationContext* context = GetInstance(info);
   context->query_count_++;
-  info.GetReturnValue().Set(context->Query(key));
+  return context->Query(key);
 }
 
 
-DeclarationContext* DeclarationContext::GetInstance(Local<Value> data) {
-  void* value = Local<External>::Cast(data)->Value();
-  return static_cast<DeclarationContext*>(value);
+DeclarationContext* DeclarationContext::GetInstance(const AccessorInfo& info) {
+  return static_cast<DeclarationContext*>(External::Unwrap(info.Data()));
 }
 
 
@@ -226,7 +213,7 @@ v8::Handle<Integer> DeclarationContext::Query(Local<String> key) {
 // Test global declaration of a property the interceptor doesn't know
 // about and doesn't handle.
 TEST(Unknown) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { DeclarationContext context;
     context.Check("var x; x",
@@ -281,7 +268,7 @@ class PresentPropertyContext: public DeclarationContext {
 
 
 TEST(Present) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { PresentPropertyContext context;
     context.Check("var x; x",
@@ -335,7 +322,7 @@ class AbsentPropertyContext: public DeclarationContext {
 
 
 TEST(Absent) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { AbsentPropertyContext context;
     context.Check("var x; x",
@@ -425,7 +412,7 @@ class AppearingPropertyContext: public DeclarationContext {
 
 
 TEST(Appearing) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { AppearingPropertyContext context;
     context.Check("var x; x",
@@ -517,7 +504,7 @@ class ReappearingPropertyContext: public DeclarationContext {
 
 
 TEST(Reappearing) {
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { ReappearingPropertyContext context;
     context.Check("const x; var x = 0",
@@ -546,7 +533,7 @@ class ExistsInPrototypeContext: public DeclarationContext {
 
 TEST(ExistsInPrototype) {
   i::FLAG_es52_globals = true;
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   // Sanity check to make sure that the holder of the interceptor
   // really is the prototype object.
@@ -609,7 +596,7 @@ class AbsentInPrototypeContext: public DeclarationContext {
 
 TEST(AbsentInPrototype) {
   i::FLAG_es52_globals = true;
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { AbsentInPrototypeContext context;
     context.Check("if (false) { var x = 0; }; x",
@@ -656,7 +643,7 @@ class ExistsInHiddenPrototypeContext: public DeclarationContext {
 
 TEST(ExistsInHiddenPrototype) {
   i::FLAG_es52_globals = true;
-  HandleScope scope(Isolate::GetCurrent());
+  HandleScope scope;
 
   { ExistsInHiddenPrototypeContext context;
     context.Check("var x; x",
@@ -705,20 +692,20 @@ TEST(ExistsInHiddenPrototype) {
 
 class SimpleContext {
  public:
-  SimpleContext()
-      : handle_scope_(Isolate::GetCurrent()),
-        context_(Context::New(Isolate::GetCurrent())) {
+  SimpleContext() {
+    context_ = Context::New(0);
     context_->Enter();
   }
 
-  ~SimpleContext() {
+  virtual ~SimpleContext() {
     context_->Exit();
+    context_.Dispose();
   }
 
   void Check(const char* source,
              Expectations expectations,
              v8::Handle<Value> value = Local<Value>()) {
-    HandleScope scope(context_->GetIsolate());
+    HandleScope scope;
     TryCatch catcher;
     catcher.SetVerbose(true);
     Local<Script> script = Script::Compile(String::New(source));
@@ -743,13 +730,12 @@ class SimpleContext {
   }
 
  private:
-  HandleScope handle_scope_;
-  Local<Context> context_;
+  Persistent<Context> context_;
 };
 
 
-TEST(CrossScriptReferences) {
-  HandleScope scope(Isolate::GetCurrent());
+TEST(MultiScriptConflicts) {
+  HandleScope scope;
 
   { SimpleContext context;
     context.Check("var x = 1; x",
@@ -786,70 +772,135 @@ TEST(CrossScriptReferences) {
     context.Check("function x() { return 7 }; x",
                   EXPECT_EXCEPTION);
   }
-}
 
-
-TEST(CrossScriptReferencesHarmony) {
   i::FLAG_use_strict = true;
   i::FLAG_harmony_scoping = true;
-  i::FLAG_harmony_modules = true;
 
-  HandleScope scope(Isolate::GetCurrent());
+  { SimpleContext context;
+    context.Check("var x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("this.x",
+                  EXPECT_RESULT, Number::New(1));
+  }
 
-  const char* decs[] = {
-    "var x = 1; x", "x", "this.x",
-    "function x() { return 1 }; x()", "x()", "this.x()",
-    "let x = 1; x", "x", "this.x",
-    "const x = 1; x", "x", "this.x",
-    "module x { export let a = 1 }; x.a", "x.a", "this.x.a",
-    NULL
-  };
+  { SimpleContext context;
+    context.Check("function x() { return 4 }; x()",
+                  EXPECT_RESULT, Number::New(4));
+    context.Check("x()",
+                  EXPECT_RESULT, Number::New(4));
+    context.Check("this.x()",
+                  EXPECT_RESULT, Number::New(4));
+  }
 
-  for (int i = 0; decs[i] != NULL; i += 3) {
-    SimpleContext context;
-    context.Check(decs[i], EXPECT_RESULT, Number::New(1));
-    context.Check(decs[i+1], EXPECT_RESULT, Number::New(1));
+  { SimpleContext context;
+    context.Check("let x = 2; x",
+                  EXPECT_RESULT, Number::New(2));
+    context.Check("x",
+                  EXPECT_RESULT, Number::New(2));
     // TODO(rossberg): The current ES6 draft spec does not reflect lexical
     // bindings on the global object. However, this will probably change, in
     // which case we reactivate the following test.
-    if (i/3 < 2) context.Check(decs[i+2], EXPECT_RESULT, Number::New(1));
+    // context.Check("this.x",
+    //               EXPECT_RESULT, Number::New(2));
   }
-}
 
+  { SimpleContext context;
+    context.Check("const x = 3; x",
+                  EXPECT_RESULT, Number::New(3));
+    context.Check("x",
+                  EXPECT_RESULT, Number::New(3));
+    // TODO(rossberg): The current ES6 draft spec does not reflect lexical
+    // bindings on the global object. However, this will probably change, in
+    // which case we reactivate the following test.
+    // context.Check("this.x",
+    //              EXPECT_RESULT, Number::New(3));
+  }
 
-TEST(CrossScriptConflicts) {
-  i::FLAG_use_strict = true;
-  i::FLAG_harmony_scoping = true;
-  i::FLAG_harmony_modules = true;
+  // TODO(rossberg): All of the below should actually be errors in Harmony.
 
-  HandleScope scope(Isolate::GetCurrent());
+  { SimpleContext context;
+    context.Check("var x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("let x = 2; x",
+                  EXPECT_RESULT, Number::New(2));
+  }
 
-  const char* firsts[] = {
-    "var x = 1; x",
-    "function x() { return 1 }; x()",
-    "let x = 1; x",
-    "const x = 1; x",
-    "module x { export let a = 1 }; x.a",
-    NULL
-  };
-  const char* seconds[] = {
-    "var x = 2; x",
-    "function x() { return 2 }; x()",
-    "let x = 2; x",
-    "const x = 2; x",
-    "module x { export let a = 2 }; x.a",
-    NULL
-  };
+  { SimpleContext context;
+    context.Check("var x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("const x = 2; x",
+                  EXPECT_RESULT, Number::New(2));
+  }
 
-  for (int i = 0; firsts[i] != NULL; ++i) {
-    for (int j = 0; seconds[j] != NULL; ++j) {
-      SimpleContext context;
-      context.Check(firsts[i], EXPECT_RESULT, Number::New(1));
-      // TODO(rossberg): All tests should actually be errors in Harmony,
-      // but we currently do not detect the cases where the first declaration
-      // is not lexical.
-      context.Check(seconds[j],
-                    i < 2 ? EXPECT_RESULT : EXPECT_ERROR, Number::New(2));
-    }
+  { SimpleContext context;
+    context.Check("function x() { return 1 }; x()",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("let x = 2; x",
+                  EXPECT_RESULT, Number::New(2));
+  }
+
+  { SimpleContext context;
+    context.Check("function x() { return 1 }; x()",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("const x = 2; x",
+                  EXPECT_RESULT, Number::New(2));
+  }
+
+  { SimpleContext context;
+    context.Check("let x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("var x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("let x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("let x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("let x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("const x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("let x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("function x() { return 2 }; x()",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("const x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("var x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("const x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("let x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("const x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("const x = 2; x",
+                  EXPECT_ERROR);
+  }
+
+  { SimpleContext context;
+    context.Check("const x = 1; x",
+                  EXPECT_RESULT, Number::New(1));
+    context.Check("function x() { return 2 }; x()",
+                  EXPECT_ERROR);
   }
 }

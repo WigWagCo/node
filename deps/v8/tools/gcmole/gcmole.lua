@@ -80,14 +80,9 @@ end
 -- Clang invocation
 
 local CLANG_BIN = os.getenv "CLANG_BIN"
-local CLANG_PLUGINS = os.getenv "CLANG_PLUGINS"
 
 if not CLANG_BIN or CLANG_BIN == "" then
    error "CLANG_BIN not set"
-end
-
-if not CLANG_PLUGINS or CLANG_PLUGINS == "" then
-   CLANG_PLUGINS = DIR
 end
 
 local function MakeClangCommandLine(plugin, plugin_args, triple, arch_define)
@@ -97,16 +92,13 @@ local function MakeClangCommandLine(plugin, plugin_args, triple, arch_define)
      end
      plugin_args = " " .. table.concat(plugin_args, " ")
    end
-   return CLANG_BIN .. "/clang -cc1 -load " .. CLANG_PLUGINS .. "/libgcmole.so"
+   return CLANG_BIN .. "/clang -cc1 -load " .. DIR .. "/libgcmole.so"
       .. " -plugin "  .. plugin
       .. (plugin_args or "")
       .. " -triple " .. triple
       .. " -D" .. arch_define
       .. " -DENABLE_DEBUGGER_SUPPORT"
-      .. " -DV8_I18N_SUPPORT"
       .. " -Isrc"
-      .. " -Ithird_party/icu/source/common"
-      .. " -Ithird_party/icu/source/i18n"
 end
 
 function InvokeClangPluginForEachFile(filenames, cfg, func)
@@ -120,31 +112,36 @@ function InvokeClangPluginForEachFile(filenames, cfg, func)
       if FLAGS.verbose then print('popen ', action) end
       local pipe = io.popen(action)
       func(filename, pipe:lines())
-      local success = pipe:close()
-      if not success then error("Failed to run: " .. action) end
+      pipe:close()
    end
 end
 
 -------------------------------------------------------------------------------
--- GYP file parsing
+-- SConscript parsing
 
-local function ParseGYPFile()
-   local f = assert(io.open("tools/gyp/v8.gyp"), "failed to open GYP file")
-   local gyp = f:read('*a')
+local function ParseSConscript()
+   local f = assert(io.open("src/SConscript"), "failed to open SConscript")
+   local sconscript = f:read('*a')
    f:close()
 
-   local result = {}
+   local SOURCES = sconscript:match "SOURCES = {(.-)}";
 
-   for condition, sources in
-      gyp:gmatch "'sources': %[.-### gcmole%((.-)%) ###(.-)%]" do
+   local sources = {}
+
+   for condition, list in
+      SOURCES:gmatch "'([^']-)': Split%(\"\"\"(.-)\"\"\"%)" do
       local files = {}
-      for file in sources:gmatch "'%.%./%.%./src/([^']-%.cc)'" do
-         table.insert(files, file)
-      end
-      result[condition] = files
+      for file in list:gmatch "[^%s]+" do table.insert(files, file) end
+      sources[condition] = files
    end
 
-   return result
+   for condition, list in SOURCES:gmatch "'([^']-)': %[(.-)%]" do
+      local files = {}
+      for file in list:gmatch "'([^']-)'" do table.insert(files, file) end
+      sources[condition] = files
+   end
+
+   return sources
 end
 
 local function EvaluateCondition(cond, props)
@@ -168,7 +165,7 @@ local function BuildFileList(sources, props)
    return list
 end
 
-local sources = ParseGYPFile()
+local sources = ParseSConscript()
 
 local function FilesForArch(arch)
    return BuildFileList(sources, { os = 'linux',

@@ -19,22 +19,19 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "node.h"
-#include "node_buffer.h"
 #include "node_http_parser.h"
 
-#include "env.h"
-#include "env-inl.h"
 #include "v8.h"
+#include "node.h"
+#include "node_buffer.h"
 
-#include <stdlib.h>  // free()
-#include <string.h>  // strdup()
-
-#if defined(_MSC_VER)
-#define strcasecmp _stricmp
+#include <string.h>  /* strdup() */
+#if !defined(_MSC_VER)
+#include <strings.h>  /* strcasecmp() */
 #else
-#include <strings.h>  // strcasecmp()
+#define strcasecmp _stricmp
 #endif
+#include <stdlib.h>  /* free() */
 
 // This is a binding to http_parser (https://github.com/joyent/http-parser)
 // The goal is to decouple sockets from parsing for more javascript-level
@@ -50,24 +47,38 @@
 
 namespace node {
 
-using v8::Array;
-using v8::Context;
-using v8::Exception;
-using v8::Function;
-using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::Handle;
-using v8::HandleScope;
-using v8::Integer;
-using v8::Local;
-using v8::Object;
-using v8::String;
-using v8::Value;
+using namespace v8;
 
-const uint32_t kOnHeaders = 0;
-const uint32_t kOnHeadersComplete = 1;
-const uint32_t kOnBody = 2;
-const uint32_t kOnMessageComplete = 3;
+static Persistent<String> on_headers_sym;
+static Persistent<String> on_headers_complete_sym;
+static Persistent<String> on_body_sym;
+static Persistent<String> on_message_complete_sym;
+
+static Persistent<String> method_sym;
+static Persistent<String> status_code_sym;
+static Persistent<String> http_version_sym;
+static Persistent<String> version_major_sym;
+static Persistent<String> version_minor_sym;
+static Persistent<String> should_keep_alive_sym;
+static Persistent<String> upgrade_sym;
+static Persistent<String> headers_sym;
+static Persistent<String> url_sym;
+
+static Persistent<String> unknown_method_sym;
+
+#define X(num, name, string) static Persistent<String> name##_sym;
+HTTP_METHOD_MAP(X)
+#undef X
+
+static struct http_parser_settings settings;
+
+
+// This is a hack to get the current_buffer to the callbacks with the least
+// amount of overhead. Nothing else will run while http_parser_execute()
+// runs, therefore this pointer can be set and used for the execution.
+static Local<Value>* current_buffer;
+static char* current_buffer_data;
+static size_t current_buffer_len;
 
 
 #define HTTP_CB(name)                                                         \
@@ -86,30 +97,14 @@ const uint32_t kOnMessageComplete = 3;
   int name##_(const char* at, size_t length)
 
 
-// Call this function only when there is a valid HandleScope on the stack
-// somewhere.
-inline Local<String> MethodToString(Environment* env, uint32_t method) {
-  // XXX(bnoordhuis) Predicated on the observation that 99.9% of all HTTP
-  // requests are either GET, HEAD or POST. I threw in DELETE and PUT for
-  // good measure.
-  switch (method) {
-    case HTTP_DELETE: return env->DELETE_string();
-    case HTTP_GET: return env->GET_string();
-    case HTTP_HEAD: return env->HEAD_string();
-    case HTTP_POST: return env->POST_string();
-    case HTTP_PUT: return env->PUT_string();
+static inline Persistent<String>
+method_to_str(unsigned short m) {
+  switch (m) {
+#define X(num, name, string) case HTTP_##name: return name##_sym;
+  HTTP_METHOD_MAP(X)
+#undef X
   }
-
-  switch (method) {
-#define V(num, name, string)                                                  \
-    case HTTP_ ## name:                                                       \
-      return FIXED_ONE_BYTE_STRING(node_isolate, #string);
-    HTTP_METHOD_MAP(V)
-#undef V
-  }
-
-  // Unreachable, http_parser parses only a restricted set of request methods.
-  return FIXED_ONE_BYTE_STRING(node_isolate, "UNKNOWN_METHOD");
+  return unknown_method_sym;
 }
 
 
@@ -155,7 +150,7 @@ struct StringPtr {
       str_ = str;
     else if (on_heap_ || str_ + size_ != str) {
       // Non-consecutive input, make a copy on the heap.
-      // TODO(bnoordhuis) Use slab allocation, O(n) allocs is bad.
+      // TODO Use slab allocation, O(n) allocs is bad.
       char* s = new char[size_ + size];
       memcpy(s, str_, size_);
       memcpy(s + size_, str, size);
@@ -173,9 +168,9 @@ struct StringPtr {
 
   Local<String> ToString() const {
     if (str_)
-      return OneByteString(node_isolate, str_, size_);
+      return String::New(str_, size_);
     else
-      return String::Empty(node_isolate);
+      return String::Empty();
   }
 
 
@@ -186,12 +181,8 @@ struct StringPtr {
 
 
 class Parser : public ObjectWrap {
- public:
-  Parser(Environment* env, enum http_parser_type type)
-      : ObjectWrap()
-      , env_(env)
-      , current_buffer_len_(0)
-      , current_buffer_data_(NULL) {
+public:
+  Parser(enum http_parser_type type) : ObjectWrap() {
     Init(type);
   }
 
@@ -226,7 +217,7 @@ class Parser : public ObjectWrap {
       fields_[num_fields_ - 1].Reset();
     }
 
-    assert(num_fields_ < static_cast<int>(ARRAY_SIZE(fields_)));
+    assert(num_fields_ < (int)ARRAY_SIZE(fields_));
     assert(num_fields_ == num_values_ + 1);
 
     fields_[num_fields_ - 1].Update(at, length);
@@ -242,7 +233,7 @@ class Parser : public ObjectWrap {
       values_[num_values_ - 1].Reset();
     }
 
-    assert(num_values_ < static_cast<int>(ARRAY_SIZE(values_)));
+    assert(num_values_ < (int)ARRAY_SIZE(values_));
     assert(num_values_ == num_fields_);
 
     values_[num_values_ - 1].Update(at, length);
@@ -252,8 +243,7 @@ class Parser : public ObjectWrap {
 
 
   HTTP_CB(on_headers_complete) {
-    Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(kOnHeadersComplete);
+    Local<Value> cb = handle_->Get(on_headers_complete_sym);
 
     if (!cb->IsFunction())
       return 0;
@@ -263,43 +253,44 @@ class Parser : public ObjectWrap {
     if (have_flushed_) {
       // Slow case, flush remaining headers.
       Flush();
-    } else {
+    }
+    else {
       // Fast case, pass headers and URL to JS land.
-      message_info->Set(env()->headers_string(), CreateHeaders());
+      message_info->Set(headers_sym, CreateHeaders());
       if (parser_.type == HTTP_REQUEST)
-        message_info->Set(env()->url_string(), url_.ToString());
+        message_info->Set(url_sym, url_.ToString());
     }
     num_fields_ = num_values_ = 0;
 
     // METHOD
     if (parser_.type == HTTP_REQUEST) {
-      message_info->Set(env()->method_string(),
-                        MethodToString(env(), parser_.method));
+      message_info->Set(method_sym, method_to_str(parser_.method));
     }
 
     // STATUS
     if (parser_.type == HTTP_RESPONSE) {
-      message_info->Set(env()->status_code_string(),
-                        Integer::New(parser_.status_code, node_isolate));
+      message_info->Set(status_code_sym,
+                        Integer::New(parser_.status_code));
     }
 
     // VERSION
-    message_info->Set(env()->version_major_string(),
-                      Integer::New(parser_.http_major, node_isolate));
-    message_info->Set(env()->version_minor_string(),
-                      Integer::New(parser_.http_minor, node_isolate));
+    message_info->Set(version_major_sym,
+                      Integer::New(parser_.http_major));
+    message_info->Set(version_minor_sym,
+                      Integer::New(parser_.http_minor));
 
-    message_info->Set(env()->should_keep_alive_string(),
-                      http_should_keep_alive(&parser_) ? True(node_isolate)
-                                                       : False(node_isolate));
+    message_info->Set(should_keep_alive_sym,
+                      http_should_keep_alive(&parser_) ? True()
+                                                       : False());
 
-    message_info->Set(env()->upgrade_string(),
-                      parser_.upgrade ? True(node_isolate)
-                                      : False(node_isolate));
+    message_info->Set(upgrade_sym,
+                      parser_.upgrade ? True()
+                                      : False());
 
     Local<Value> argv[1] = { message_info };
+
     Local<Value> head_response =
-        cb.As<Function>()->Call(obj, ARRAY_SIZE(argv), argv);
+        Local<Function>::Cast(cb)->Call(handle_, 1, argv);
 
     if (head_response.IsEmpty()) {
       got_exception_ = true;
@@ -311,21 +302,19 @@ class Parser : public ObjectWrap {
 
 
   HTTP_DATA_CB(on_body) {
-    HandleScope scope(node_isolate);
+    HandleScope scope;
 
-    Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(kOnBody);
-
+    Local<Value> cb = handle_->Get(on_body_sym);
     if (!cb->IsFunction())
       return 0;
 
     Local<Value> argv[3] = {
-      current_buffer_,
-      Integer::NewFromUnsigned(at - current_buffer_data_, node_isolate),
-      Integer::NewFromUnsigned(length, node_isolate)
+      *current_buffer,
+      Integer::New(at - current_buffer_data),
+      Integer::New(length)
     };
 
-    Local<Value> r = cb.As<Function>()->Call(obj, ARRAY_SIZE(argv), argv);
+    Local<Value> r = Local<Function>::Cast(cb)->Call(handle_, 3, argv);
 
     if (r.IsEmpty()) {
       got_exception_ = true;
@@ -337,18 +326,17 @@ class Parser : public ObjectWrap {
 
 
   HTTP_CB(on_message_complete) {
-    HandleScope scope(node_isolate);
+    HandleScope scope;
 
     if (num_fields_)
-      Flush();  // Flush trailing HTTP headers.
+      Flush(); // Flush trailing HTTP headers.
 
-    Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(kOnMessageComplete);
+    Local<Value> cb = handle_->Get(on_message_complete_sym);
 
     if (!cb->IsFunction())
       return 0;
 
-    Local<Value> r = cb.As<Function>()->Call(obj, 0, NULL);
+    Local<Value> r = Local<Function>::Cast(cb)->Call(handle_, 0, NULL);
 
     if (r.IsEmpty()) {
       got_exception_ = true;
@@ -359,16 +347,21 @@ class Parser : public ObjectWrap {
   }
 
 
-  static void New(const FunctionCallbackInfo<Value>& args) {
-    Environment* env = Environment::GetCurrent(args.GetIsolate());
-    HandleScope handle_scope(args.GetIsolate());
+  static Handle<Value> New(const Arguments& args) {
+    HandleScope scope;
 
     http_parser_type type =
         static_cast<http_parser_type>(args[0]->Int32Value());
 
-    assert(type == HTTP_REQUEST || type == HTTP_RESPONSE);
-    Parser* parser = new Parser(env, type);
+    if (type != HTTP_REQUEST && type != HTTP_RESPONSE) {
+      return ThrowException(Exception::Error(String::New(
+          "Argument must be HTTPParser.REQUEST or HTTPParser.RESPONSE")));
+    }
+
+    Parser* parser = new Parser(type);
     parser->Wrap(args.This());
+
+    return args.This();
   }
 
 
@@ -385,107 +378,123 @@ class Parser : public ObjectWrap {
   }
 
 
-  // var bytesParsed = parser->execute(buffer);
-  static void Execute(const FunctionCallbackInfo<Value>& args) {
-    HandleScope scope(node_isolate);
+  // var bytesParsed = parser->execute(buffer, off, len);
+  static Handle<Value> Execute(const Arguments& args) {
+    HandleScope scope;
 
     Parser* parser = ObjectWrap::Unwrap<Parser>(args.This());
-    assert(parser->current_buffer_.IsEmpty());
-    assert(parser->current_buffer_len_ == 0);
-    assert(parser->current_buffer_data_ == NULL);
-    assert(Buffer::HasInstance(args[0]) == true);
 
-    Local<Object> buffer_obj = args[0].As<Object>();
-    char* buffer_data = Buffer::Data(buffer_obj);
+    assert(!current_buffer);
+    assert(!current_buffer_data);
+
+    if (current_buffer) {
+      return ThrowException(Exception::TypeError(
+            String::New("Already parsing a buffer")));
+    }
+
+    Local<Value> buffer_v = args[0];
+
+    if (!Buffer::HasInstance(buffer_v)) {
+      return ThrowException(Exception::TypeError(
+            String::New("Argument should be a buffer")));
+    }
+
+    Local<Object> buffer_obj = buffer_v->ToObject();
+    char *buffer_data = Buffer::Data(buffer_obj);
     size_t buffer_len = Buffer::Length(buffer_obj);
 
-    // This is a hack to get the current_buffer to the callbacks with the least
-    // amount of overhead. Nothing else will run while http_parser_execute()
-    // runs, therefore this pointer can be set and used for the execution.
-    parser->current_buffer_ = buffer_obj;
-    parser->current_buffer_len_ = buffer_len;
-    parser->current_buffer_data_ = buffer_data;
+    size_t off = args[1]->Int32Value();
+    if (off >= buffer_len) {
+      return ThrowException(Exception::Error(
+            String::New("Offset is out of bounds")));
+    }
+
+    size_t len = args[2]->Int32Value();
+    if (off+len > buffer_len) {
+      return ThrowException(Exception::Error(
+            String::New("off + len > buffer.length")));
+    }
+
+    // Assign 'buffer_' while we parse. The callbacks will access that varible.
+    current_buffer = &buffer_v;
+    current_buffer_data = buffer_data;
+    current_buffer_len = buffer_len;
     parser->got_exception_ = false;
 
     size_t nparsed =
-      http_parser_execute(&parser->parser_, &settings, buffer_data, buffer_len);
+      http_parser_execute(&parser->parser_, &settings, buffer_data + off, len);
 
     parser->Save();
 
     // Unassign the 'buffer_' variable
-    parser->current_buffer_.Clear();
-    parser->current_buffer_len_ = 0;
-    parser->current_buffer_data_ = NULL;
+    assert(current_buffer);
+    current_buffer = NULL;
+    current_buffer_data = NULL;
 
     // If there was an exception in one of the callbacks
-    if (parser->got_exception_) return;
+    if (parser->got_exception_) return Local<Value>();
 
-    Local<Integer> nparsed_obj = Integer::New(nparsed, node_isolate);
+    Local<Integer> nparsed_obj = Integer::New(nparsed);
     // If there was a parse error in one of the callbacks
-    // TODO(bnoordhuis) What if there is an error on EOF?
-    if (!parser->parser_.upgrade && nparsed != buffer_len) {
+    // TODO What if there is an error on EOF?
+    if (!parser->parser_.upgrade && nparsed != len) {
       enum http_errno err = HTTP_PARSER_ERRNO(&parser->parser_);
 
-      Local<Value> e = Exception::Error(
-          FIXED_ONE_BYTE_STRING(node_isolate, "Parse Error"));
+      Local<Value> e = Exception::Error(String::NewSymbol("Parse Error"));
       Local<Object> obj = e->ToObject();
-      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "bytesParsed"), nparsed_obj);
-      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "code"),
-               OneByteString(node_isolate, http_errno_name(err)));
-
-      args.GetReturnValue().Set(e);
+      obj->Set(String::NewSymbol("bytesParsed"), nparsed_obj);
+      obj->Set(String::NewSymbol("code"), String::New(http_errno_name(err)));
+      return scope.Close(e);
     } else {
-      args.GetReturnValue().Set(nparsed_obj);
+      return scope.Close(nparsed_obj);
     }
   }
 
 
-  static void Finish(const FunctionCallbackInfo<Value>& args) {
-    HandleScope scope(node_isolate);
+  static Handle<Value> Finish(const Arguments& args) {
+    HandleScope scope;
 
     Parser* parser = ObjectWrap::Unwrap<Parser>(args.This());
 
-    assert(parser->current_buffer_.IsEmpty());
+    assert(!current_buffer);
     parser->got_exception_ = false;
 
     int rv = http_parser_execute(&(parser->parser_), &settings, NULL, 0);
 
-    if (parser->got_exception_) return;
+    if (parser->got_exception_) return Local<Value>();
 
     if (rv != 0) {
       enum http_errno err = HTTP_PARSER_ERRNO(&parser->parser_);
 
-      Local<Value> e = Exception::Error(
-          FIXED_ONE_BYTE_STRING(node_isolate, "Parse Error"));
+      Local<Value> e = Exception::Error(String::NewSymbol("Parse Error"));
       Local<Object> obj = e->ToObject();
-      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "bytesParsed"),
-               Integer::New(0, node_isolate));
-      obj->Set(FIXED_ONE_BYTE_STRING(node_isolate, "code"),
-               OneByteString(node_isolate, http_errno_name(err)));
-
-      args.GetReturnValue().Set(e);
+      obj->Set(String::NewSymbol("bytesParsed"), Integer::New(0));
+      obj->Set(String::NewSymbol("code"), String::New(http_errno_name(err)));
+      return scope.Close(e);
     }
+
+    return Undefined();
   }
 
 
-  static void Reinitialize(const FunctionCallbackInfo<Value>& args) {
-    Environment* env = Environment::GetCurrent(args.GetIsolate());
-    HandleScope handle_scope(args.GetIsolate());
+  static Handle<Value> Reinitialize(const Arguments& args) {
+    HandleScope scope;
 
     http_parser_type type =
         static_cast<http_parser_type>(args[0]->Int32Value());
 
-    assert(type == HTTP_REQUEST || type == HTTP_RESPONSE);
+    if (type != HTTP_REQUEST && type != HTTP_RESPONSE) {
+      return ThrowException(Exception::Error(String::New(
+          "Argument must be HTTPParser.REQUEST or HTTPParser.RESPONSE")));
+    }
+
     Parser* parser = ObjectWrap::Unwrap<Parser>(args.This());
-    // Should always be called from the same context.
-    assert(env == parser->env());
     parser->Init(type);
+
+    return Undefined();
   }
 
 
-<<<<<<< HEAD
- private:
-=======
   template <bool should_pause>
   static Handle<Value> Pause(const Arguments& args) {
     HandleScope scope;
@@ -496,7 +505,6 @@ class Parser : public ObjectWrap {
 
 
 private:
->>>>>>> upstream/v0.10.24-release
 
   Local<Array> CreateHeaders() {
     // num_values_ is either -1 or the entry # of the last header
@@ -514,10 +522,9 @@ private:
 
   // spill headers and request path to JS land
   void Flush() {
-    HandleScope scope(node_isolate);
+    HandleScope scope;
 
-    Local<Object> obj = handle(node_isolate);
-    Local<Value> cb = obj->Get(kOnHeaders);
+    Local<Value> cb = handle_->Get(on_headers_sym);
 
     if (!cb->IsFunction())
       return;
@@ -527,7 +534,7 @@ private:
       url_.ToString()
     };
 
-    Local<Value> r = cb.As<Function>()->Call(obj, ARRAY_SIZE(argv), argv);
+    Local<Value> r = Local<Function>::Cast(cb)->Call(handle_, 2, argv);
 
     if (r.IsEmpty())
       got_exception_ = true;
@@ -547,12 +554,6 @@ private:
   }
 
 
-  inline Environment* env() const {
-    return env_;
-  }
-
-
-  Environment* const env_;
   http_parser parser_;
   StringPtr fields_[32];  // header fields
   StringPtr values_[32];  // header values
@@ -561,43 +562,23 @@ private:
   int num_values_;
   bool have_flushed_;
   bool got_exception_;
-  Local<Object> current_buffer_;
-  size_t current_buffer_len_;
-  char* current_buffer_data_;
-  static const struct http_parser_settings settings;
 };
 
 
-const struct http_parser_settings Parser::settings = {
-  Parser::on_message_begin,
-  Parser::on_url,
-  Parser::on_header_field,
-  Parser::on_header_value,
-  Parser::on_headers_complete,
-  Parser::on_body,
-  Parser::on_message_complete
-};
+void InitHttpParser(Handle<Object> target) {
+  HandleScope scope;
 
-
-void InitHttpParser(Handle<Object> target,
-                    Handle<Value> unused,
-                    Handle<Context> context) {
   Local<FunctionTemplate> t = FunctionTemplate::New(Parser::New);
   t->InstanceTemplate()->SetInternalFieldCount(1);
-  t->SetClassName(FIXED_ONE_BYTE_STRING(node_isolate, "HTTPParser"));
+  t->SetClassName(String::NewSymbol("HTTPParser"));
 
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "REQUEST"),
-         Integer::New(HTTP_REQUEST, node_isolate));
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "RESPONSE"),
-         Integer::New(HTTP_RESPONSE, node_isolate));
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnHeaders"),
-         Integer::NewFromUnsigned(kOnHeaders, node_isolate));
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnHeadersComplete"),
-         Integer::NewFromUnsigned(kOnHeadersComplete, node_isolate));
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnBody"),
-         Integer::NewFromUnsigned(kOnBody, node_isolate));
-  t->Set(FIXED_ONE_BYTE_STRING(node_isolate, "kOnMessageComplete"),
-         Integer::NewFromUnsigned(kOnMessageComplete, node_isolate));
+  PropertyAttribute attrib = (PropertyAttribute) (ReadOnly | DontDelete);
+  t->Set(String::NewSymbol("REQUEST"),
+         Integer::New(HTTP_REQUEST),
+         attrib);
+  t->Set(String::NewSymbol("RESPONSE"),
+         Integer::New(HTTP_RESPONSE),
+         attrib);
 
   NODE_SET_PROTOTYPE_METHOD(t, "execute", Parser::Execute);
   NODE_SET_PROTOTYPE_METHOD(t, "finish", Parser::Finish);
@@ -605,10 +586,37 @@ void InitHttpParser(Handle<Object> target,
   NODE_SET_PROTOTYPE_METHOD(t, "pause", Parser::Pause<true>);
   NODE_SET_PROTOTYPE_METHOD(t, "resume", Parser::Pause<false>);
 
-  target->Set(FIXED_ONE_BYTE_STRING(node_isolate, "HTTPParser"),
-              t->GetFunction());
+  target->Set(String::NewSymbol("HTTPParser"), t->GetFunction());
+
+  on_headers_sym          = NODE_PSYMBOL("onHeaders");
+  on_headers_complete_sym = NODE_PSYMBOL("onHeadersComplete");
+  on_body_sym             = NODE_PSYMBOL("onBody");
+  on_message_complete_sym = NODE_PSYMBOL("onMessageComplete");
+
+#define X(num, name, string) name##_sym = NODE_PSYMBOL(#string);
+  HTTP_METHOD_MAP(X)
+#undef X
+  unknown_method_sym = NODE_PSYMBOL("UNKNOWN_METHOD");
+
+  method_sym = NODE_PSYMBOL("method");
+  status_code_sym = NODE_PSYMBOL("statusCode");
+  http_version_sym = NODE_PSYMBOL("httpVersion");
+  version_major_sym = NODE_PSYMBOL("versionMajor");
+  version_minor_sym = NODE_PSYMBOL("versionMinor");
+  should_keep_alive_sym = NODE_PSYMBOL("shouldKeepAlive");
+  upgrade_sym = NODE_PSYMBOL("upgrade");
+  headers_sym = NODE_PSYMBOL("headers");
+  url_sym = NODE_PSYMBOL("url");
+
+  settings.on_message_begin    = Parser::on_message_begin;
+  settings.on_url              = Parser::on_url;
+  settings.on_header_field     = Parser::on_header_field;
+  settings.on_header_value     = Parser::on_header_value;
+  settings.on_headers_complete = Parser::on_headers_complete;
+  settings.on_body             = Parser::on_body;
+  settings.on_message_complete = Parser::on_message_complete;
 }
 
 }  // namespace node
 
-NODE_MODULE_CONTEXT_AWARE(node_http_parser, node::InitHttpParser)
+NODE_MODULE(node_http_parser, node::InitHttpParser)

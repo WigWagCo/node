@@ -32,7 +32,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
 #include "cpu.h"
 #include "macro-assembler.h"
@@ -108,7 +108,7 @@ void CPU::FlushICache(void* start, size_t size) {
 
 
 void CPU::DebugBreak() {
-#if !defined (__arm__)
+#if !defined (__arm__) || !defined(CAN_USE_ARMV5_INSTRUCTIONS)
   UNIMPLEMENTED();  // when building ARM emulator target
 #else
   asm volatile("bkpt 0");

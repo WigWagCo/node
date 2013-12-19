@@ -44,18 +44,18 @@ using ::v8::Function;
 using ::v8::AccessorInfo;
 using ::v8::Extension;
 
-static void handle_property(Local<String> name,
-                            const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> handle_property(Local<String> name,
+                                         const AccessorInfo&) {
   ApiTestFuzzer::Fuzz();
-  info.GetReturnValue().Set(v8_num(900));
+  return v8_num(900);
 }
 
 
 THREADED_TEST(PropertyHandler) {
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
+  v8::HandleScope scope;
   Local<v8::FunctionTemplate> fun_templ = v8::FunctionTemplate::New();
   fun_templ->InstanceTemplate()->SetAccessor(v8_str("foo"), handle_property);
+  LocalContext env;
   Local<Function> fun = fun_templ->GetFunction();
   env->Global()->Set(v8_str("Fun"), fun);
   Local<Script> getter = v8_compile("var obj = new Fun(); obj.foo;");
@@ -65,18 +65,18 @@ THREADED_TEST(PropertyHandler) {
 }
 
 
-static void GetIntValue(Local<String> property,
-                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> GetIntValue(Local<String> property,
+                                     const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
   int* value =
       static_cast<int*>(v8::Handle<v8::External>::Cast(info.Data())->Value());
-  info.GetReturnValue().Set(v8_num(*value));
+  return v8_num(*value);
 }
 
 
 static void SetIntValue(Local<String> property,
                         Local<Value> value,
-                        const v8::PropertyCallbackInfo<void>& info) {
+                        const AccessorInfo& info) {
   int* field =
       static_cast<int*>(v8::Handle<v8::External>::Cast(info.Data())->Value());
   *field = value->Int32Value();
@@ -88,7 +88,7 @@ THREADED_TEST(GlobalVariableAccess) {
   foo = 0;
   bar = -4;
   baz = 10;
-  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::HandleScope scope;
   v8::Handle<v8::FunctionTemplate> templ = v8::FunctionTemplate::New();
   templ->InstanceTemplate()->SetAccessor(v8_str("foo"),
                                          GetIntValue,
@@ -114,20 +114,19 @@ static v8::Handle<v8::Object> x_receiver;
 static v8::Handle<v8::Object> x_holder;
 
 
-static void XGetter(Local<String> name,
-                    const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> XGetter(Local<String> name, const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
   CHECK_EQ(isolate, info.GetIsolate());
   CHECK_EQ(x_receiver, info.This());
   CHECK_EQ(x_holder, info.Holder());
-  info.GetReturnValue().Set(v8_num(x_register));
+  return v8_num(x_register);
 }
 
 
 static void XSetter(Local<String> name,
                     Local<Value> value,
-                    const v8::PropertyCallbackInfo<void>& info) {
+                    const AccessorInfo& info) {
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
   CHECK_EQ(isolate, info.GetIsolate());
   CHECK_EQ(x_holder, info.This());
@@ -137,10 +136,10 @@ static void XSetter(Local<String> name,
 
 
 THREADED_TEST(AccessorIC) {
-  LocalContext context;
-  v8::HandleScope scope(context->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("x"), XGetter, XSetter);
+  LocalContext context;
   x_holder = obj->NewInstance();
   context->Global()->Set(v8_str("holder"), x_holder);
   x_receiver = v8::Object::New();
@@ -161,17 +160,17 @@ THREADED_TEST(AccessorIC) {
 }
 
 
-static void AccessorProhibitsOverwritingGetter(
+static v8::Handle<Value> AccessorProhibitsOverwritingGetter(
     Local<String> name,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
+    const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
-  info.GetReturnValue().Set(true);
+  return v8::True();
 }
 
 
 THREADED_TEST(AccessorProhibitsOverwriting) {
+  v8::HandleScope scope;
   LocalContext context;
-  v8::HandleScope scope(context->GetIsolate());
   Local<ObjectTemplate> templ = ObjectTemplate::New();
   templ->SetAccessor(v8_str("x"),
                      AccessorProhibitsOverwritingGetter,
@@ -209,41 +208,38 @@ THREADED_TEST(AccessorProhibitsOverwriting) {
 
 
 template <int C>
-static void HandleAllocatingGetter(
-    Local<String> name,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> HandleAllocatingGetter(Local<String> name,
+                                                const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
   for (int i = 0; i < C; i++)
     v8::String::New("foo");
-  info.GetReturnValue().Set(v8::String::New("foo"));
+  return v8::String::New("foo");
 }
 
 
 THREADED_TEST(HandleScopePop) {
-  LocalContext context;
-  v8::HandleScope scope(context->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("one"), HandleAllocatingGetter<1>);
   obj->SetAccessor(v8_str("many"), HandleAllocatingGetter<1024>);
+  LocalContext context;
   v8::Handle<v8::Object> inst = obj->NewInstance();
   context->Global()->Set(v8::String::New("obj"), inst);
-  i::Isolate* isolate = i::Isolate::Current();
-  int count_before = i::HandleScope::NumberOfHandles(isolate);
+  int count_before = i::HandleScope::NumberOfHandles();
   {
-    v8::HandleScope scope(context->GetIsolate());
+    v8::HandleScope scope;
     CompileRun(
         "for (var i = 0; i < 1000; i++) {"
         "  obj.one;"
         "  obj.many;"
         "}");
   }
-  int count_after = i::HandleScope::NumberOfHandles(isolate);
+  int count_after = i::HandleScope::NumberOfHandles();
   CHECK_EQ(count_before, count_after);
 }
 
-static void CheckAccessorArgsCorrect(
-    Local<String> name,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> CheckAccessorArgsCorrect(Local<String> name,
+                                                  const AccessorInfo& info) {
   CHECK(info.GetIsolate() == v8::Isolate::GetCurrent());
   CHECK(info.This() == info.Holder());
   CHECK(info.Data()->Equals(v8::String::New("data")));
@@ -255,18 +251,17 @@ static void CheckAccessorArgsCorrect(
   CHECK(info.GetIsolate() == v8::Isolate::GetCurrent());
   CHECK(info.This() == info.Holder());
   CHECK(info.Data()->Equals(v8::String::New("data")));
-  info.GetReturnValue().Set(17);
+  return v8::Integer::New(17);
 }
 
-
 THREADED_TEST(DirectCall) {
-  LocalContext context;
-  v8::HandleScope scope(context->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("xxx"),
                    CheckAccessorArgsCorrect,
                    NULL,
                    v8::String::New("data"));
+  LocalContext context;
   v8::Handle<v8::Object> inst = obj->NewInstance();
   context->Global()->Set(v8::String::New("obj"), inst);
   Local<Script> scr = v8::Script::Compile(v8::String::New("obj.xxx"));
@@ -277,20 +272,19 @@ THREADED_TEST(DirectCall) {
   }
 }
 
-static void EmptyGetter(Local<String> name,
-                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> EmptyGetter(Local<String> name,
+                                     const AccessorInfo& info) {
   CheckAccessorArgsCorrect(name, info);
   ApiTestFuzzer::Fuzz();
   CheckAccessorArgsCorrect(name, info);
-  info.GetReturnValue().Set(v8::Handle<v8::Value>());
+  return v8::Handle<v8::Value>();
 }
 
-
 THREADED_TEST(EmptyResult) {
-  LocalContext context;
-  v8::HandleScope scope(context->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("xxx"), EmptyGetter, NULL, v8::String::New("data"));
+  LocalContext context;
   v8::Handle<v8::Object> inst = obj->NewInstance();
   context->Global()->Set(v8::String::New("obj"), inst);
   Local<Script> scr = v8::Script::Compile(v8::String::New("obj.xxx"));
@@ -304,7 +298,7 @@ THREADED_TEST(EmptyResult) {
 THREADED_TEST(NoReuseRegress) {
   // Check that the IC generated for the one test doesn't get reused
   // for the other.
-  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::HandleScope scope;
   {
     v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
     obj->SetAccessor(v8_str("xxx"), EmptyGetter, NULL, v8::String::New("data"));
@@ -335,30 +329,29 @@ THREADED_TEST(NoReuseRegress) {
   }
 }
 
-static void ThrowingGetAccessor(
-    Local<String> name,
-    const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> ThrowingGetAccessor(Local<String> name,
+                                             const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
-  v8::ThrowException(v8_str("g"));
+  return v8::ThrowException(v8_str("g"));
 }
 
 
 static void ThrowingSetAccessor(Local<String> name,
                                 Local<Value> value,
-                                const v8::PropertyCallbackInfo<void>& info) {
+                                const AccessorInfo& info) {
   v8::ThrowException(value);
 }
 
 
 THREADED_TEST(Regress1054726) {
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("x"),
                    ThrowingGetAccessor,
                    ThrowingSetAccessor,
                    Local<Value>());
 
+  LocalContext env;
   env->Global()->Set(v8_str("obj"), obj->NewInstance());
 
   // Use the throwing property setter/getter in a loop to force
@@ -380,18 +373,18 @@ THREADED_TEST(Regress1054726) {
 }
 
 
-static void AllocGetter(Local<String> name,
-                        const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> AllocGetter(Local<String> name,
+                                     const AccessorInfo& info) {
   ApiTestFuzzer::Fuzz();
-  info.GetReturnValue().Set(v8::Array::New(1000));
+  return v8::Array::New(1000);
 }
 
 
 THREADED_TEST(Gc) {
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("xxx"), AllocGetter);
+  LocalContext env;
   env->Global()->Set(v8_str("obj"), obj->NewInstance());
   Script::Compile(String::New(
       "var last = [];"
@@ -403,9 +396,9 @@ THREADED_TEST(Gc) {
 }
 
 
-static void StackCheck(Local<String> name,
-                       const v8::PropertyCallbackInfo<v8::Value>& info) {
-  i::StackFrameIterator iter(reinterpret_cast<i::Isolate*>(info.GetIsolate()));
+static v8::Handle<Value> StackCheck(Local<String> name,
+                                    const AccessorInfo& info) {
+  i::StackFrameIterator iter;
   for (int i = 0; !iter.done(); i++) {
     i::StackFrame* frame = iter.frame();
     CHECK(i != 0 || (frame->type() == i::StackFrame::EXIT));
@@ -415,15 +408,16 @@ static void StackCheck(Local<String> name,
     CHECK(code->contains(pc));
     iter.Advance();
   }
+  return v8::Undefined();
 }
 
 
 THREADED_TEST(StackIteration) {
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   i::StringStream::ClearMentionedObjectCache();
   obj->SetAccessor(v8_str("xxx"), StackCheck);
+  LocalContext env;
   env->Global()->Set(v8_str("obj"), obj->NewInstance());
   Script::Compile(String::New(
       "function foo() {"
@@ -435,22 +429,22 @@ THREADED_TEST(StackIteration) {
 }
 
 
-static void AllocateHandles(Local<String> name,
-                            const v8::PropertyCallbackInfo<v8::Value>& info) {
+static v8::Handle<Value> AllocateHandles(Local<String> name,
+                                         const AccessorInfo& info) {
   for (int i = 0; i < i::kHandleBlockSize + 1; i++) {
     v8::Local<v8::Value>::New(name);
   }
-  info.GetReturnValue().Set(v8::Integer::New(100));
+  return v8::Integer::New(100);
 }
 
 
 THREADED_TEST(HandleScopeSegment) {
   // Check that we can return values past popping of handle scope
   // segments.
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
+  v8::HandleScope scope;
   v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
   obj->SetAccessor(v8_str("xxx"), AllocateHandles);
+  LocalContext env;
   env->Global()->Set(v8_str("obj"), obj->NewInstance());
   v8::Handle<v8::Value> result = Script::Compile(String::New(
       "var result;"
@@ -458,30 +452,4 @@ THREADED_TEST(HandleScopeSegment) {
       "  result = obj.xxx;"
       "result;"))->Run();
   CHECK_EQ(100, result->Int32Value());
-}
-
-
-void JSONStringifyEnumerator(const v8::PropertyCallbackInfo<v8::Array>& info) {
-  v8::Handle<v8::Array> array = v8::Array::New(1);
-  array->Set(0, v8_str("regress"));
-  info.GetReturnValue().Set(array);
-}
-
-
-void JSONStringifyGetter(Local<String> name,
-                         const v8::PropertyCallbackInfo<v8::Value>& info) {
-  info.GetReturnValue().Set(v8_str("crbug-161028"));
-}
-
-
-THREADED_TEST(JSONStringifyNamedInterceptorObject) {
-  LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
-
-  v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
-  obj->SetNamedPropertyHandler(
-      JSONStringifyGetter, NULL, NULL, NULL, JSONStringifyEnumerator);
-  env->Global()->Set(v8_str("obj"), obj->NewInstance());
-  v8::Handle<v8::String> expected = v8_str("{\"regress\":\"crbug-161028\"}");
-  CHECK(CompileRun("JSON.stringify(obj)")->Equals(expected));
 }

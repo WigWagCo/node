@@ -25,6 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
 #include "v8.h"
 
 #include "cctest.h"
@@ -34,6 +35,8 @@
 
 
 using namespace v8::internal;
+
+static v8::Persistent<v8::Context> env;
 
 
 void SetSeeds(Handle<ByteArray> seeds, uint32_t state0, uint32_t state1) {
@@ -67,12 +70,11 @@ void TestSeeds(Handle<JSFunction> fun,
 
 
 TEST(CrankshaftRandom) {
-  v8::V8::Initialize();
+  if (env.IsEmpty()) env = v8::Context::New();
   // Skip test if crankshaft is disabled.
   if (!V8::UseCrankshaft()) return;
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  v8::HandleScope scope(isolate);
-  v8::Context::Scope context_scope(v8::Context::New(isolate));
+  v8::HandleScope scope;
+  env->Enter();
 
   Handle<Context> context(Isolate::Current()->context());
   Handle<JSObject> global(context->global_object());
@@ -81,10 +83,9 @@ TEST(CrankshaftRandom) {
 
   CompileRun("function f() { return Math.random(); }");
 
-  Object* string = Isolate::Current()->factory()->InternalizeOneByteString(
-      STATIC_ASCII_VECTOR("f"))->ToObjectChecked();
+  Object* symbol = FACTORY->LookupAsciiSymbol("f")->ToObjectChecked();
   MaybeObject* fun_object =
-      context->global_object()->GetProperty(String::cast(string));
+      context->global_object()->GetProperty(String::cast(symbol));
   Handle<JSFunction> fun(JSFunction::cast(fun_object->ToObjectChecked()));
 
   // Optimize function.

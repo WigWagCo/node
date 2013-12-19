@@ -35,16 +35,7 @@ namespace internal {
 
 
 void* SamplingCircularQueue::Enqueue() {
-  if (producer_pos_->enqueue_pos == producer_pos_->next_chunk_pos) {
-    if (producer_pos_->enqueue_pos == buffer_ + buffer_size_) {
-      producer_pos_->next_chunk_pos = buffer_;
-      producer_pos_->enqueue_pos = buffer_;
-    }
-    Acquire_Store(producer_pos_->next_chunk_pos, kEnqueueStarted);
-    // Skip marker.
-    producer_pos_->enqueue_pos += 1;
-    producer_pos_->next_chunk_pos += chunk_size_;
-  }
+  WrapPositionIfNeeded(&producer_pos_->enqueue_pos);
   void* result = producer_pos_->enqueue_pos;
   producer_pos_->enqueue_pos += record_size_;
   return result;
@@ -53,7 +44,7 @@ void* SamplingCircularQueue::Enqueue() {
 
 void SamplingCircularQueue::WrapPositionIfNeeded(
     SamplingCircularQueue::Cell** pos) {
-  if (*pos == buffer_ + buffer_size_) *pos = buffer_;
+  if (**pos == kEnd) *pos = buffer_;
 }
 
 

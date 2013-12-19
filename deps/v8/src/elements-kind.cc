@@ -35,9 +35,6 @@ namespace v8 {
 namespace internal {
 
 
-<<<<<<< HEAD
-const char* ElementsKindToString(ElementsKind kind) {
-=======
 int ElementsKindToShiftSize(ElementsKind elements_kind) {
   switch (elements_kind) {
     case EXTERNAL_BYTE_ELEMENTS:
@@ -69,14 +66,8 @@ int ElementsKindToShiftSize(ElementsKind elements_kind) {
 
 
 void PrintElementsKind(FILE* out, ElementsKind kind) {
->>>>>>> upstream/v0.10.24-release
   ElementsAccessor* accessor = ElementsAccessor::ForKind(kind);
-  return accessor->name();
-}
-
-
-void PrintElementsKind(FILE* out, ElementsKind kind) {
-  PrintF(out, "%s", ElementsKindToString(kind));
+  PrintF(out, "%s", accessor->name());
 }
 
 
@@ -116,7 +107,6 @@ ElementsKind GetFastElementsKindFromSequenceIndex(int sequence_number) {
          sequence_number < kFastElementsKindCount);
   return fast_elements_kind_sequence.Get()[sequence_number];
 }
-
 
 int GetSequenceIndexFromFastElementsKind(ElementsKind elements_kind) {
   for (int i = 0; i < kFastElementsKindCount; ++i) {

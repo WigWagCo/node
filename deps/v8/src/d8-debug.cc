@@ -50,12 +50,12 @@ void PrintPrompt() {
 }
 
 
-void HandleDebugEvent(const Debug::EventDetails& event_details) {
-  // TODO(svenpanne) There should be a way to retrieve this in the callback.
-  Isolate* isolate = Isolate::GetCurrent();
-  HandleScope scope(isolate);
+void HandleDebugEvent(DebugEvent event,
+                      Handle<Object> exec_state,
+                      Handle<Object> event_data,
+                      Handle<Value> data) {
+  HandleScope scope;
 
-  DebugEvent event = event_details.GetEvent();
   // Check for handled event.
   if (event != Break && event != Exception && event != AfterCompile) {
     return;
@@ -65,20 +65,19 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
   // Get the toJSONProtocol function on the event and get the JSON format.
   Local<String> to_json_fun_name = String::New("toJSONProtocol");
-  Handle<Object> event_data = event_details.GetEventData();
   Local<Function> to_json_fun =
-      Local<Function>::Cast(event_data->Get(to_json_fun_name));
+      Function::Cast(*event_data->Get(to_json_fun_name));
   Local<Value> event_json = to_json_fun->Call(event_data, 0, NULL);
   if (try_catch.HasCaught()) {
-    Shell::ReportException(isolate, &try_catch);
+    Shell::ReportException(&try_catch);
     return;
   }
 
   // Print the event details.
   Handle<Object> details =
-      Shell::DebugMessageDetails(isolate, Handle<String>::Cast(event_json));
+      Shell::DebugMessageDetails(Handle<String>::Cast(event_json));
   if (try_catch.HasCaught()) {
-    Shell::ReportException(isolate, &try_catch);
+    Shell::ReportException(&try_catch);
     return;
   }
   String::Utf8Value str(details->Get(String::New("text")));
@@ -90,12 +89,11 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
   // Get the debug command processor.
   Local<String> fun_name = String::New("debugCommandProcessor");
-  Handle<Object> exec_state = event_details.GetExecutionState();
-  Local<Function> fun = Local<Function>::Cast(exec_state->Get(fun_name));
+  Local<Function> fun = Function::Cast(*exec_state->Get(fun_name));
   Local<Object> cmd_processor =
-      Local<Object>::Cast(fun->Call(exec_state, 0, NULL));
+      Object::Cast(*fun->Call(exec_state, 0, NULL));
   if (try_catch.HasCaught()) {
-    Shell::ReportException(isolate, &try_catch);
+    Shell::ReportException(&try_catch);
     return;
   }
 
@@ -114,9 +112,9 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 
     // Convert the debugger command to a JSON debugger request.
     Handle<Value> request =
-        Shell::DebugCommandToJSONRequest(isolate, String::New(command));
+        Shell::DebugCommandToJSONRequest(String::New(command));
     if (try_catch.HasCaught()) {
-      Shell::ReportException(isolate, &try_catch);
+      Shell::ReportException(&try_catch);
       continue;
     }
 
@@ -140,16 +138,15 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
     args[0] = request;
     Handle<Value> response_val = fun->Call(cmd_processor, kArgc, args);
     if (try_catch.HasCaught()) {
-      Shell::ReportException(isolate, &try_catch);
+      Shell::ReportException(&try_catch);
       continue;
     }
     Handle<String> response = Handle<String>::Cast(response_val);
 
     // Convert the debugger response into text details and the running state.
-    Handle<Object> response_details =
-        Shell::DebugMessageDetails(isolate, response);
+    Handle<Object> response_details = Shell::DebugMessageDetails(response);
     if (try_catch.HasCaught()) {
-      Shell::ReportException(isolate, &try_catch);
+      Shell::ReportException(&try_catch);
       continue;
     }
     String::Utf8Value text_str(response_details->Get(String::New("text")));
@@ -162,8 +159,8 @@ void HandleDebugEvent(const Debug::EventDetails& event_details) {
 }
 
 
-void RunRemoteDebugger(Isolate* isolate, int port) {
-  RemoteDebugger debugger(isolate, port);
+void RunRemoteDebugger(int port) {
+  RemoteDebugger debugger(port);
   debugger.Run();
 }
 
@@ -276,16 +273,15 @@ RemoteDebuggerEvent* RemoteDebugger::GetEvent() {
 
 
 void RemoteDebugger::HandleMessageReceived(char* message) {
-  Locker lock(isolate_);
-  HandleScope scope(isolate_);
+  Locker lock;
+  HandleScope scope;
 
   // Print the event details.
   TryCatch try_catch;
   Handle<Object> details =
-      Shell::DebugMessageDetails(isolate_,
-                                 Handle<String>::Cast(String::New(message)));
+      Shell::DebugMessageDetails(Handle<String>::Cast(String::New(message)));
   if (try_catch.HasCaught()) {
-    Shell::ReportException(isolate_, &try_catch);
+    Shell::ReportException(&try_catch);
     PrintPrompt();
     return;
   }
@@ -306,15 +302,15 @@ void RemoteDebugger::HandleMessageReceived(char* message) {
 
 
 void RemoteDebugger::HandleKeyboardCommand(char* command) {
-  Locker lock(isolate_);
-  HandleScope scope(isolate_);
+  Locker lock;
+  HandleScope scope;
 
   // Convert the debugger command to a JSON debugger request.
   TryCatch try_catch;
   Handle<Value> request =
-      Shell::DebugCommandToJSONRequest(isolate_, String::New(command));
+      Shell::DebugCommandToJSONRequest(String::New(command));
   if (try_catch.HasCaught()) {
-    Shell::ReportException(isolate_, &try_catch);
+    Shell::ReportException(&try_catch);
     PrintPrompt();
     return;
   }

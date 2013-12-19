@@ -27,15 +27,11 @@
 
 "use strict";
 
-// This file relies on the fact that the following declaration has been made
-// in runtime.js:
-// var $Object = global.Object;
+global.Proxy = new $Object();
 
-var $Proxy = new $Object();
+var $Proxy = global.Proxy
 
-// -------------------------------------------------------------------
-
-function ProxyCreate(handler, proto) {
+$Proxy.create = function(handler, proto) {
   if (!IS_SPEC_OBJECT(handler))
     throw MakeTypeError("handler_non_object", ["create"])
   if (IS_UNDEFINED(proto))
@@ -45,7 +41,7 @@ function ProxyCreate(handler, proto) {
   return %CreateJSProxy(handler, proto)
 }
 
-function ProxyCreateFunction(handler, callTrap, constructTrap) {
+$Proxy.createFunction = function(handler, callTrap, constructTrap) {
   if (!IS_SPEC_OBJECT(handler))
     throw MakeTypeError("handler_non_object", ["create"])
   if (!IS_SPEC_FUNCTION(callTrap))
@@ -67,31 +63,17 @@ function ProxyCreateFunction(handler, callTrap, constructTrap) {
 }
 
 
-// -------------------------------------------------------------------
 
-function SetUpProxy() {
-  %CheckIsBootstrapping()
-
-  global.Proxy = $Proxy;
-
-  // Set up non-enumerable properties of the Proxy object.
-  InstallFunctions($Proxy, DONT_ENUM, [
-    "create", ProxyCreate,
-    "createFunction", ProxyCreateFunction
-  ])
-}
-
-SetUpProxy();
-
-
-// -------------------------------------------------------------------
-// Proxy Builtins
+////////////////////////////////////////////////////////////////////////////////
+// Builtins
+////////////////////////////////////////////////////////////////////////////////
 
 function DerivedConstructTrap(callTrap) {
   return function() {
     var proto = this.prototype
     if (!IS_SPEC_OBJECT(proto)) proto = $Object.prototype
-    var obj = { __proto__: proto };
+    var obj = new $Object()
+    obj.__proto__ = proto
     var result = %Apply(callTrap, obj, arguments, 0, %_ArgumentsLength());
     return IS_SPEC_OBJECT(result) ? result : obj
   }
@@ -176,7 +158,6 @@ function DerivedKeysTrap() {
   var enumerableNames = []
   for (var i = 0, count = 0; i < names.length; ++i) {
     var name = names[i]
-    if (IS_SYMBOL(name)) continue
     var desc = this.getOwnPropertyDescriptor(TO_STRING_INLINE(name))
     if (!IS_UNDEFINED(desc) && desc.enumerable) {
       enumerableNames[count++] = names[i]
@@ -190,14 +171,9 @@ function DerivedEnumerateTrap() {
   var enumerableNames = []
   for (var i = 0, count = 0; i < names.length; ++i) {
     var name = names[i]
-    if (IS_SYMBOL(name)) continue
     var desc = this.getPropertyDescriptor(TO_STRING_INLINE(name))
-    if (!IS_UNDEFINED(desc)) {
-      if (!desc.configurable) {
-        throw MakeTypeError("proxy_prop_not_configurable",
-            [this, "getPropertyDescriptor", name])
-      }
-      if (desc.enumerable) enumerableNames[count++] = names[i]
+    if (!IS_UNDEFINED(desc) && desc.enumerable) {
+      enumerableNames[count++] = names[i]
     }
   }
   return enumerableNames
@@ -208,6 +184,6 @@ function ProxyEnumerate(proxy) {
   if (IS_UNDEFINED(handler.enumerate)) {
     return %Apply(DerivedEnumerateTrap, handler, [], 0, 0)
   } else {
-    return ToNameArray(handler.enumerate(), "enumerate", false)
+    return ToStringArray(handler.enumerate(), "enumerate")
   }
 }

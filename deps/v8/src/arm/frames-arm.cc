@@ -27,25 +27,17 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_ARM
+#if defined(V8_TARGET_ARCH_ARM)
 
-#include "assembler.h"
-#include "assembler-arm.h"
-#include "assembler-arm-inl.h"
-#include "frames.h"
-#include "macro-assembler.h"
-#include "macro-assembler-arm.h"
+#include "frames-inl.h"
 
 namespace v8 {
 namespace internal {
 
 
-Register JavaScriptFrame::fp_register() { return v8::internal::fp; }
-Register JavaScriptFrame::context_register() { return cp; }
-
-
-Register StubFailureTrampolineFrame::fp_register() { return v8::internal::fp; }
-Register StubFailureTrampolineFrame::context_register() { return cp; }
+Address ExitFrame::ComputeStackPointer(Address fp) {
+  return Memory::Address_at(fp + ExitFrameConstants::kSPOffset);
+}
 
 
 } }  // namespace v8::internal

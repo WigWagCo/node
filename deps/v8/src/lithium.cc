@@ -58,27 +58,24 @@ void LOperand::PrintTo(StringStream* stream) {
     case UNALLOCATED:
       unalloc = LUnallocated::cast(this);
       stream->Add("v%d", unalloc->virtual_register());
-      if (unalloc->basic_policy() == LUnallocated::FIXED_SLOT) {
-        stream->Add("(=%dS)", unalloc->fixed_slot_index());
-        break;
-      }
-      switch (unalloc->extended_policy()) {
+      switch (unalloc->policy()) {
         case LUnallocated::NONE:
           break;
         case LUnallocated::FIXED_REGISTER: {
-          int reg_index = unalloc->fixed_register_index();
           const char* register_name =
-              Register::AllocationIndexToString(reg_index);
+              Register::AllocationIndexToString(unalloc->fixed_index());
           stream->Add("(=%s)", register_name);
           break;
         }
         case LUnallocated::FIXED_DOUBLE_REGISTER: {
-          int reg_index = unalloc->fixed_register_index();
           const char* double_register_name =
-              DoubleRegister::AllocationIndexToString(reg_index);
+              DoubleRegister::AllocationIndexToString(unalloc->fixed_index());
           stream->Add("(=%s)", double_register_name);
           break;
         }
+        case LUnallocated::FIXED_SLOT:
+          stream->Add("(=%dS)", unalloc->fixed_index());
+          break;
         case LUnallocated::MUST_HAVE_REGISTER:
           stream->Add("(R)");
           break;
@@ -177,11 +174,8 @@ void LParallelMove::PrintDataTo(StringStream* stream) const {
 
 void LEnvironment::PrintTo(StringStream* stream) {
   stream->Add("[id=%d|", ast_id().ToInt());
-  if (deoptimization_index() != Safepoint::kNoDeoptimizationIndex) {
-    stream->Add("deopt_id=%d|", deoptimization_index());
-  }
-  stream->Add("parameters=%d|", parameter_count());
-  stream->Add("arguments_stack_height=%d|", arguments_stack_height());
+  stream->Add("[parameters=%d|", parameter_count());
+  stream->Add("[arguments_stack_height=%d|", arguments_stack_height());
   for (int i = 0; i < values_.length(); ++i) {
     if (i != 0) stream->Add(";");
     if (values_[i] == NULL) {
@@ -233,61 +227,6 @@ void LPointerMap::PrintTo(StringStream* stream) {
 }
 
 
-<<<<<<< HEAD
-int ElementsKindToShiftSize(ElementsKind elements_kind) {
-  switch (elements_kind) {
-    case EXTERNAL_BYTE_ELEMENTS:
-    case EXTERNAL_PIXEL_ELEMENTS:
-    case EXTERNAL_UNSIGNED_BYTE_ELEMENTS:
-      return 0;
-    case EXTERNAL_SHORT_ELEMENTS:
-    case EXTERNAL_UNSIGNED_SHORT_ELEMENTS:
-      return 1;
-    case EXTERNAL_INT_ELEMENTS:
-    case EXTERNAL_UNSIGNED_INT_ELEMENTS:
-    case EXTERNAL_FLOAT_ELEMENTS:
-      return 2;
-    case EXTERNAL_DOUBLE_ELEMENTS:
-    case FAST_DOUBLE_ELEMENTS:
-    case FAST_HOLEY_DOUBLE_ELEMENTS:
-      return 3;
-    case FAST_SMI_ELEMENTS:
-    case FAST_ELEMENTS:
-    case FAST_HOLEY_SMI_ELEMENTS:
-    case FAST_HOLEY_ELEMENTS:
-    case DICTIONARY_ELEMENTS:
-    case NON_STRICT_ARGUMENTS_ELEMENTS:
-      return kPointerSizeLog2;
-  }
-  UNREACHABLE();
-  return 0;
-}
-
-
-int StackSlotOffset(int index) {
-  if (index >= 0) {
-    // Local or spill slot. Skip the frame pointer, function, and
-    // context in the fixed part of the frame.
-    return -(index + 3) * kPointerSize;
-  } else {
-    // Incoming parameter. Skip the return address.
-    return -(index + 1) * kPointerSize + kFPOnStackSize + kPCOnStackSize;
-  }
-}
-
-
-LChunk::LChunk(CompilationInfo* info, HGraph* graph)
-    : spill_slot_count_(0),
-      info_(info),
-      graph_(graph),
-      instructions_(32, graph->zone()),
-      pointer_maps_(8, graph->zone()),
-      inlined_closures_(1, graph->zone()) {
-}
-
-
-=======
->>>>>>> upstream/v0.10.24-release
 LLabel* LChunk::GetLabel(int block_id) const {
   HBasicBlock* block = graph_->blocks()->at(block_id);
   int first_instruction = block->first_instruction_index();
@@ -309,9 +248,8 @@ Label* LChunk::GetAssemblyLabel(int block_id) const {
   return label->label();
 }
 
-
 void LChunk::MarkEmptyBlocks() {
-  LPhase phase("L_Mark empty blocks", this);
+  HPhase phase("L_Mark empty blocks", this);
   for (int i = 0; i < graph()->blocks()->length(); ++i) {
     HBasicBlock* block = graph()->blocks()->at(i);
     int first = block->first_instruction_index();
@@ -336,6 +274,7 @@ void LChunk::MarkEmptyBlocks() {
             can_eliminate = false;
           }
         }
+
         if (can_eliminate) {
           label->set_replacement(GetLabel(goto_instr->block_id()));
         }
@@ -347,7 +286,6 @@ void LChunk::MarkEmptyBlocks() {
 
 void LChunk::AddInstruction(LInstruction* instr, HBasicBlock* block) {
   LInstructionGap* gap = new(graph_->zone()) LInstructionGap(block);
-  gap->set_hydrogen_value(instr->hydrogen_value());
   int index = -1;
   if (instr->IsControl()) {
     instructions_.Add(gap, zone());
@@ -423,12 +361,13 @@ Representation LChunk::LookupLiteralRepresentation(
 
 
 LChunk* LChunk::NewChunk(HGraph* graph) {
-  DisallowHandleAllocation no_handles;
-  DisallowHeapAllocation no_gc;
+  NoHandleAllocation no_handles;
+  AssertNoAllocation no_gc;
+
   int values = graph->GetMaximumValueID();
   CompilationInfo* info = graph->info();
   if (values > LUnallocated::kMaxVirtualRegisters) {
-    info->set_bailout_reason(kNotEnoughVirtualRegistersForValues);
+    info->set_bailout_reason("not enough virtual registers for values");
     return NULL;
   }
   LAllocator allocator(values, graph);
@@ -437,12 +376,9 @@ LChunk* LChunk::NewChunk(HGraph* graph) {
   if (chunk == NULL) return NULL;
 
   if (!allocator.Allocate(chunk)) {
-    info->set_bailout_reason(kNotEnoughVirtualRegistersRegalloc);
+    info->set_bailout_reason("not enough virtual registers (regalloc)");
     return NULL;
   }
-
-  chunk->set_allocated_double_registers(
-      allocator.assigned_double_registers());
 
   return chunk;
 }
@@ -450,55 +386,23 @@ LChunk* LChunk::NewChunk(HGraph* graph) {
 
 Handle<Code> LChunk::Codegen() {
   MacroAssembler assembler(info()->isolate(), NULL, 0);
-  LOG_CODE_EVENT(info()->isolate(),
-                 CodeStartLinePosInfoRecordEvent(
-                     assembler.positions_recorder()));
   LCodeGen generator(this, &assembler, info());
 
   MarkEmptyBlocks();
 
   if (generator.GenerateCode()) {
-    CodeGenerator::MakeCodePrologue(info(), "optimized");
-    Code::Flags flags = info()->flags();
+    if (FLAG_trace_codegen) {
+      PrintF("Crankshaft Compiler - ");
+    }
+    CodeGenerator::MakeCodePrologue(info());
+    Code::Flags flags = Code::ComputeFlags(Code::OPTIMIZED_FUNCTION);
     Handle<Code> code =
         CodeGenerator::MakeCodeEpilogue(&assembler, flags, info());
     generator.FinishCode(code);
-    code->set_is_crankshafted(true);
-    if (!code.is_null()) {
-      void* jit_handler_data =
-          assembler.positions_recorder()->DetachJITHandlerData();
-      LOG_CODE_EVENT(info()->isolate(),
-                     CodeEndLinePosInfoRecordEvent(*code, jit_handler_data));
-    }
-
     CodeGenerator::PrintCode(code, info());
     return code;
   }
   return Handle<Code>::null();
-}
-
-
-void LChunk::set_allocated_double_registers(BitVector* allocated_registers) {
-  allocated_double_registers_ = allocated_registers;
-  BitVector* doubles = allocated_double_registers();
-  BitVector::Iterator iterator(doubles);
-  while (!iterator.Done()) {
-    if (info()->saves_caller_doubles()) {
-      if (kDoubleSize == kPointerSize * 2) {
-        spill_slot_count_ += 2;
-      } else {
-        spill_slot_count_++;
-      }
-    }
-    iterator.Advance();
-  }
-}
-
-
-LPhase::~LPhase() {
-  if (ShouldProduceTraceOutput()) {
-    isolate()->GetHTracer()->TraceLithium(name(), chunk_);
-  }
 }
 
 

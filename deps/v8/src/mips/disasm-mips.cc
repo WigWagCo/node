@@ -56,7 +56,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_MIPS
+#if defined(V8_TARGET_ARCH_MIPS)
 
 #include "mips/constants-mips.h"
 #include "disasm.h"
@@ -350,10 +350,6 @@ int Decoder::FormatFPURegister(Instruction* instr, const char* format) {
     int reg = instr->FdValue();
     PrintFPURegister(reg);
     return 2;
-  } else if (format[1] == 'r') {  // 'fr: fr register.
-    int reg = instr->FrValue();
-    PrintFPURegister(reg);
-    return 2;
   }
   UNREACHABLE();
   return -1;
@@ -621,15 +617,6 @@ void Decoder::DecodeTypeRegister(Instruction* instr) {
         default:
           UNREACHABLE();
       }
-      break;
-    case COP1X:
-      switch (instr->FunctionFieldRaw()) {
-        case MADD_D:
-          Format(instr, "madd.d  'fd, 'fr, 'fs, 'ft");
-          break;
-        default:
-          UNREACHABLE();
-      };
       break;
     case SPECIAL:
       switch (instr->FunctionFieldRaw()) {
@@ -1051,8 +1038,8 @@ void Disassembler::Disassemble(FILE* f, byte* begin, byte* end) {
     buffer[0] = '\0';
     byte* prev_pc = pc;
     pc += d.InstructionDecode(buffer, pc);
-    v8::internal::PrintF(f, "%p    %08x      %s\n",
-        prev_pc, *reinterpret_cast<int32_t*>(prev_pc), buffer.start());
+    fprintf(f, "%p    %08x      %s\n",
+            prev_pc, *reinterpret_cast<int32_t*>(prev_pc), buffer.start());
   }
 }
 

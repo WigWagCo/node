@@ -47,8 +47,7 @@ int JSCallerSavedCode(int n);
 
 
 // Forward declarations.
-class ExternalCallbackScope;
-class StackFrameIteratorBase;
+class StackFrameIterator;
 class ThreadLocalTop;
 class Isolate;
 
@@ -82,19 +81,6 @@ class InnerPointerToCodeCache {
   InnerPointerToCodeCacheEntry cache_[kInnerPointerToCodeCacheSize];
 
   DISALLOW_COPY_AND_ASSIGN(InnerPointerToCodeCache);
-};
-
-
-class StackHandlerConstants : public AllStatic {
- public:
-  static const int kNextOffset     = 0 * kPointerSize;
-  static const int kCodeOffset     = 1 * kPointerSize;
-  static const int kStateOffset    = 2 * kPointerSize;
-  static const int kContextOffset  = 3 * kPointerSize;
-  static const int kFPOffset       = 4 * kPointerSize;
-
-  static const int kSize = kFPOffset + kFPOnStackSize;
-  static const int kSlotCount = kSize >> kPointerSizeLog2;
 };
 
 
@@ -133,52 +119,26 @@ class StackHandler BASE_EMBEDDED {
   inline bool is_catch() const;
   inline bool is_finally() const;
 
-  // Generator support to preserve stack handlers.
-  void Unwind(Isolate* isolate, FixedArray* array, int offset,
-              int previous_handler_offset) const;
-  int Rewind(Isolate* isolate, FixedArray* array, int offset, Address fp);
-
  private:
   // Accessors.
   inline Kind kind() const;
-  inline unsigned index() const;
 
   inline Object** context_address() const;
   inline Object** code_address() const;
-  inline void SetFp(Address slot, Address fp);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StackHandler);
 };
 
 
-#define STACK_FRAME_TYPE_LIST(V)                         \
-  V(ENTRY,                   EntryFrame)                 \
-  V(ENTRY_CONSTRUCT,         EntryConstructFrame)        \
-  V(EXIT,                    ExitFrame)                  \
-  V(JAVA_SCRIPT,             JavaScriptFrame)            \
-  V(OPTIMIZED,               OptimizedFrame)             \
-  V(STUB,                    StubFrame)                  \
-  V(STUB_FAILURE_TRAMPOLINE, StubFailureTrampolineFrame) \
-  V(INTERNAL,                InternalFrame)              \
-  V(CONSTRUCT,               ConstructFrame)             \
-  V(ARGUMENTS_ADAPTOR,       ArgumentsAdaptorFrame)
-
-
-class StandardFrameConstants : public AllStatic {
- public:
-  // Fixed part of the frame consists of return address, caller fp,
-  // context and function.
-  // StandardFrame::IterateExpressions assumes that kContextOffset is the last
-  // object pointer.
-  static const int kFixedFrameSize    =  kPCOnStackSize + kFPOnStackSize +
-                                         2 * kPointerSize;
-  static const int kExpressionsOffset = -3 * kPointerSize;
-  static const int kMarkerOffset      = -2 * kPointerSize;
-  static const int kContextOffset     = -1 * kPointerSize;
-  static const int kCallerFPOffset    =  0 * kPointerSize;
-  static const int kCallerPCOffset    = +1 * kFPOnStackSize;
-  static const int kCallerSPOffset    =  kCallerPCOffset + 1 * kPCOnStackSize;
-};
+#define STACK_FRAME_TYPE_LIST(V)              \
+  V(ENTRY,             EntryFrame)            \
+  V(ENTRY_CONSTRUCT,   EntryConstructFrame)   \
+  V(EXIT,              ExitFrame)             \
+  V(JAVA_SCRIPT,       JavaScriptFrame)       \
+  V(OPTIMIZED,         OptimizedFrame)        \
+  V(INTERNAL,          InternalFrame)         \
+  V(CONSTRUCT,         ConstructFrame)        \
+  V(ARGUMENTS_ADAPTOR, ArgumentsAdaptorFrame)
 
 
 // Abstract base class for all stack frames.
@@ -233,9 +193,6 @@ class StackFrame BASE_EMBEDDED {
   bool is_optimized() const { return type() == OPTIMIZED; }
   bool is_arguments_adaptor() const { return type() == ARGUMENTS_ADAPTOR; }
   bool is_internal() const { return type() == INTERNAL; }
-  bool is_stub_failure_trampoline() const {
-    return type() == STUB_FAILURE_TRAMPOLINE;
-  }
   bool is_construct() const { return type() == CONSTRUCT; }
   virtual bool is_standard() const { return false; }
 
@@ -300,21 +257,17 @@ class StackFrame BASE_EMBEDDED {
   static void SetReturnAddressLocationResolver(
       ReturnAddressLocationResolver resolver);
 
-  // Resolves pc_address through the resolution address function if one is set.
-  static inline Address* ResolveReturnAddressLocation(Address* pc_address);
-
-
   // Printing support.
   enum PrintMode { OVERVIEW, DETAILS };
   virtual void Print(StringStream* accumulator,
                      PrintMode mode,
                      int index) const { }
 
-  Isolate* isolate() const { return isolate_; }
-
  protected:
-  inline explicit StackFrame(StackFrameIteratorBase* iterator);
+  inline explicit StackFrame(StackFrameIterator* iterator);
   virtual ~StackFrame() { }
+
+  Isolate* isolate() const { return isolate_; }
 
   // Compute the stack pointer for the calling frame.
   virtual Address GetCallerStackPointer() const = 0;
@@ -328,18 +281,12 @@ class StackFrame BASE_EMBEDDED {
   inline StackHandler* top_handler() const;
 
   // Compute the stack frame type for the given state.
-  static Type ComputeType(const StackFrameIteratorBase* iterator, State* state);
-
-#ifdef DEBUG
-  bool can_access_heap_objects() const;
-#endif
+  static Type ComputeType(Isolate* isolate, State* state);
 
  private:
-  const StackFrameIteratorBase* iterator_;
+  const StackFrameIterator* iterator_;
   Isolate* isolate_;
   State state_;
-
-  static ReturnAddressLocationResolver return_address_location_resolver_;
 
   // Fill in the state of the calling frame.
   virtual void ComputeCallerState(State* state) const = 0;
@@ -350,7 +297,6 @@ class StackFrame BASE_EMBEDDED {
   static const intptr_t kIsolateTag = 1;
 
   friend class StackFrameIterator;
-  friend class StackFrameIteratorBase;
   friend class StackHandlerIterator;
   friend class SafeStackFrameIterator;
 
@@ -376,7 +322,7 @@ class EntryFrame: public StackFrame {
   virtual void SetCallerFp(Address caller_fp);
 
  protected:
-  inline explicit EntryFrame(StackFrameIteratorBase* iterator);
+  inline explicit EntryFrame(StackFrameIterator* iterator);
 
   // The caller stack pointer for entry frames is always zero. The
   // real information about the caller frame is available through the
@@ -387,7 +333,7 @@ class EntryFrame: public StackFrame {
   virtual void ComputeCallerState(State* state) const;
   virtual Type GetCallerState(State* state) const;
 
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -403,10 +349,10 @@ class EntryConstructFrame: public EntryFrame {
   }
 
  protected:
-  inline explicit EntryConstructFrame(StackFrameIteratorBase* iterator);
+  inline explicit EntryConstructFrame(StackFrameIterator* iterator);
 
  private:
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -437,14 +383,14 @@ class ExitFrame: public StackFrame {
   static void FillState(Address fp, Address sp, State* state);
 
  protected:
-  inline explicit ExitFrame(StackFrameIteratorBase* iterator);
+  inline explicit ExitFrame(StackFrameIterator* iterator);
 
   virtual Address GetCallerStackPointer() const;
 
  private:
   virtual void ComputeCallerState(State* state) const;
 
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -470,7 +416,7 @@ class StandardFrame: public StackFrame {
   }
 
  protected:
-  inline explicit StandardFrame(StackFrameIteratorBase* iterator);
+  inline explicit StandardFrame(StackFrameIterator* iterator);
 
   virtual void ComputeCallerState(State* state) const;
 
@@ -502,12 +448,9 @@ class StandardFrame: public StackFrame {
   // construct frame.
   static inline bool IsConstructFrame(Address fp);
 
-  // Used by OptimizedFrames and StubFrames.
-  void IterateCompiledFrame(ObjectVisitor* v) const;
-
  private:
   friend class StackFrame;
-  friend class SafeStackFrameIterator;
+  friend class StackFrameIterator;
 };
 
 
@@ -518,7 +461,7 @@ class FrameSummary BASE_EMBEDDED {
                Code* code,
                int offset,
                bool is_constructor)
-      : receiver_(receiver, function->GetIsolate()),
+      : receiver_(receiver),
         function_(function),
         code_(code),
         offset_(offset),
@@ -546,7 +489,7 @@ class JavaScriptFrame: public StandardFrame {
   virtual Type type() const { return JAVA_SCRIPT; }
 
   // Accessors.
-  inline JSFunction* function() const;
+  inline Object* function() const;
   inline Object* receiver() const;
   inline void set_receiver(Object* value);
 
@@ -556,15 +499,6 @@ class JavaScriptFrame: public StandardFrame {
   inline int ComputeParametersCount() const {
     return GetNumberOfIncomingArguments();
   }
-
-  // Access the operand stack.
-  inline Address GetOperandSlot(int index) const;
-  inline Object* GetOperand(int index) const;
-  inline int ComputeOperandsCount() const;
-
-  // Generator support to preserve operand stack and stack handlers.
-  void SaveOperandStack(FixedArray* store, int* stack_handler_index) const;
-  void RestoreOperandStack(FixedArray* store, int stack_handler_index);
 
   // Debugger access.
   void SetParameterValue(int index, Object* value) const;
@@ -598,22 +532,15 @@ class JavaScriptFrame: public StandardFrame {
   // Build a list with summaries for this frame including all inlined frames.
   virtual void Summarize(List<FrameSummary>* frames);
 
-  // Architecture-specific register description.
-  static Register fp_register();
-  static Register context_register();
-
   static JavaScriptFrame* cast(StackFrame* frame) {
     ASSERT(frame->is_java_script());
     return static_cast<JavaScriptFrame*>(frame);
   }
 
-  static void PrintTop(Isolate* isolate,
-                       FILE* file,
-                       bool print_args,
-                       bool print_line_number);
+  static void PrintTop(FILE* file, bool print_args, bool print_line_number);
 
  protected:
-  inline explicit JavaScriptFrame(StackFrameIteratorBase* iterator);
+  inline explicit JavaScriptFrame(StackFrameIterator* iterator);
 
   virtual Address GetCallerStackPointer() const;
 
@@ -626,28 +553,8 @@ class JavaScriptFrame: public StandardFrame {
  private:
   inline Object* function_slot_object() const;
 
-  friend class StackFrameIteratorBase;
-};
-
-
-class StubFrame : public StandardFrame {
- public:
-  virtual Type type() const { return STUB; }
-
-  // GC support.
-  virtual void Iterate(ObjectVisitor* v) const;
-
-  // Determine the code for the frame.
-  virtual Code* unchecked_code() const;
-
- protected:
-  inline explicit StubFrame(StackFrameIteratorBase* iterator);
-
-  virtual Address GetCallerStackPointer() const;
-
-  virtual int GetNumberOfIncomingArguments() const;
-
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
+  friend class StackTracer;
 };
 
 
@@ -670,12 +577,12 @@ class OptimizedFrame : public JavaScriptFrame {
   DeoptimizationInputData* GetDeoptimizationData(int* deopt_index);
 
  protected:
-  inline explicit OptimizedFrame(StackFrameIteratorBase* iterator);
+  inline explicit OptimizedFrame(StackFrameIterator* iterator);
 
  private:
   JSFunction* LiteralAt(FixedArray* literal_array, int literal_id);
 
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -700,14 +607,14 @@ class ArgumentsAdaptorFrame: public JavaScriptFrame {
                      int index) const;
 
  protected:
-  inline explicit ArgumentsAdaptorFrame(StackFrameIteratorBase* iterator);
+  inline explicit ArgumentsAdaptorFrame(StackFrameIterator* iterator);
 
   virtual int GetNumberOfIncomingArguments() const;
 
   virtual Address GetCallerStackPointer() const;
 
  private:
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -727,45 +634,12 @@ class InternalFrame: public StandardFrame {
   }
 
  protected:
-  inline explicit InternalFrame(StackFrameIteratorBase* iterator);
+  inline explicit InternalFrame(StackFrameIterator* iterator);
 
   virtual Address GetCallerStackPointer() const;
 
  private:
-  friend class StackFrameIteratorBase;
-};
-
-
-class StubFailureTrampolineFrame: public StandardFrame {
- public:
-  // sizeof(Arguments) - sizeof(Arguments*) is 3 * kPointerSize), but the
-  // presubmit script complains about using sizeof() on a type.
-  static const int kFirstRegisterParameterFrameOffset =
-      StandardFrameConstants::kMarkerOffset - 3 * kPointerSize;
-
-  static const int kCallerStackParameterCountFrameOffset =
-      StandardFrameConstants::kMarkerOffset - 2 * kPointerSize;
-
-  virtual Type type() const { return STUB_FAILURE_TRAMPOLINE; }
-
-  // Get the code associated with this frame.
-  // This method could be called during marking phase of GC.
-  virtual Code* unchecked_code() const;
-
-  virtual void Iterate(ObjectVisitor* v) const;
-
-  // Architecture-specific register description.
-  static Register fp_register();
-  static Register context_register();
-
- protected:
-  inline explicit StubFailureTrampolineFrame(
-      StackFrameIteratorBase* iterator);
-
-  virtual Address GetCallerStackPointer() const;
-
- private:
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
@@ -781,30 +655,54 @@ class ConstructFrame: public InternalFrame {
   }
 
  protected:
-  inline explicit ConstructFrame(StackFrameIteratorBase* iterator);
+  inline explicit ConstructFrame(StackFrameIterator* iterator);
 
  private:
-  friend class StackFrameIteratorBase;
+  friend class StackFrameIterator;
 };
 
 
-class StackFrameIteratorBase BASE_EMBEDDED {
+class StackFrameIterator BASE_EMBEDDED {
  public:
+  // An iterator that iterates over the current thread's stack,
+  // and uses current isolate.
+  StackFrameIterator();
+
+  // An iterator that iterates over the isolate's current thread's stack,
+  explicit StackFrameIterator(Isolate* isolate);
+
+  // An iterator that iterates over a given thread's stack.
+  StackFrameIterator(Isolate* isolate, ThreadLocalTop* t);
+
+  // An iterator that can start from a given FP address.
+  // If use_top, then work as usual, if fp isn't NULL, use it,
+  // otherwise, do nothing.
+  StackFrameIterator(Isolate* isolate, bool use_top, Address fp, Address sp);
+
+  StackFrame* frame() const {
+    ASSERT(!done());
+    return frame_;
+  }
+
   Isolate* isolate() const { return isolate_; }
 
   bool done() const { return frame_ == NULL; }
+  void Advance() { (this->*advance_)(); }
 
- protected:
-  // An iterator that iterates over a given thread's stack.
-  StackFrameIteratorBase(Isolate* isolate, bool can_access_heap_objects);
+  // Go back to the first frame.
+  void Reset();
 
+ private:
   Isolate* isolate_;
 #define DECLARE_SINGLETON(ignore, type) type type##_;
   STACK_FRAME_TYPE_LIST(DECLARE_SINGLETON)
 #undef DECLARE_SINGLETON
   StackFrame* frame_;
   StackHandler* handler_;
-  const bool can_access_heap_objects_;
+  ThreadLocalTop* thread_;
+  Address fp_;
+  Address sp_;
+  void (StackFrameIterator::*advance_)();
 
   StackHandler* handler() const {
     ASSERT(!done());
@@ -816,40 +714,46 @@ class StackFrameIteratorBase BASE_EMBEDDED {
   // A helper function, can return a NULL pointer.
   StackFrame* SingletonFor(StackFrame::Type type);
 
- private:
+  void AdvanceWithHandler();
+  void AdvanceWithoutHandler();
+
   friend class StackFrame;
-  DISALLOW_COPY_AND_ASSIGN(StackFrameIteratorBase);
-};
-
-
-class StackFrameIterator: public StackFrameIteratorBase {
- public:
-  // An iterator that iterates over the isolate's current thread's stack,
-  explicit StackFrameIterator(Isolate* isolate);
-  // An iterator that iterates over a given thread's stack.
-  StackFrameIterator(Isolate* isolate, ThreadLocalTop* t);
-
-  StackFrame* frame() const {
-    ASSERT(!done());
-    return frame_;
-  }
-  void Advance();
-
- private:
-  // Go back to the first frame.
-  void Reset(ThreadLocalTop* top);
-
+  friend class SafeStackFrameIterator;
   DISALLOW_COPY_AND_ASSIGN(StackFrameIterator);
 };
 
 
 // Iterator that supports iterating through all JavaScript frames.
-class JavaScriptFrameIterator BASE_EMBEDDED {
+template<typename Iterator>
+class JavaScriptFrameIteratorTemp BASE_EMBEDDED {
  public:
-  inline explicit JavaScriptFrameIterator(Isolate* isolate);
-  inline JavaScriptFrameIterator(Isolate* isolate, ThreadLocalTop* top);
+  JavaScriptFrameIteratorTemp() { if (!done()) Advance(); }
+
+  inline explicit JavaScriptFrameIteratorTemp(Isolate* isolate);
+
+  inline JavaScriptFrameIteratorTemp(Isolate* isolate, ThreadLocalTop* top);
+
   // Skip frames until the frame with the given id is reached.
-  JavaScriptFrameIterator(Isolate* isolate, StackFrame::Id id);
+  explicit JavaScriptFrameIteratorTemp(StackFrame::Id id) { AdvanceToId(id); }
+
+  inline JavaScriptFrameIteratorTemp(Isolate* isolate, StackFrame::Id id);
+
+  JavaScriptFrameIteratorTemp(Address fp,
+                              Address sp,
+                              Address low_bound,
+                              Address high_bound) :
+      iterator_(fp, sp, low_bound, high_bound) {
+    if (!done()) Advance();
+  }
+
+  JavaScriptFrameIteratorTemp(Isolate* isolate,
+                              Address fp,
+                              Address sp,
+                              Address low_bound,
+                              Address high_bound) :
+      iterator_(isolate, fp, sp, low_bound, high_bound) {
+    if (!done()) Advance();
+  }
 
   inline JavaScriptFrame* frame() const;
 
@@ -861,9 +765,17 @@ class JavaScriptFrameIterator BASE_EMBEDDED {
   // arguments.
   void AdvanceToArgumentsFrame();
 
+  // Go back to the first frame.
+  void Reset();
+
  private:
-  StackFrameIterator iterator_;
+  inline void AdvanceToId(StackFrame::Id id);
+
+  Iterator iterator_;
 };
+
+
+typedef JavaScriptFrameIteratorTemp<StackFrameIterator> JavaScriptFrameIterator;
 
 
 // NOTE: The stack trace frame iterator is an iterator that only
@@ -872,6 +784,7 @@ class JavaScriptFrameIterator BASE_EMBEDDED {
 // functions in runtime.js.
 class StackTraceFrameIterator: public JavaScriptFrameIterator {
  public:
+  StackTraceFrameIterator();
   explicit StackTraceFrameIterator(Isolate* isolate);
   void Advance();
 
@@ -880,39 +793,100 @@ class StackTraceFrameIterator: public JavaScriptFrameIterator {
 };
 
 
-class SafeStackFrameIterator: public StackFrameIteratorBase {
+class SafeStackFrameIterator BASE_EMBEDDED {
  public:
   SafeStackFrameIterator(Isolate* isolate,
                          Address fp, Address sp,
-                         Address js_entry_sp);
+                         Address low_bound, Address high_bound);
 
-  inline StackFrame* frame() const;
+  StackFrame* frame() const {
+    ASSERT(is_working_iterator_);
+    return iterator_.frame();
+  }
+
+  bool done() const { return iteration_done_ ? true : iterator_.done(); }
+
   void Advance();
+  void Reset();
 
-  StackFrame::Type top_frame_type() const { return top_frame_type_; }
+  static bool is_active(Isolate* isolate);
+
+  static bool IsWithinBounds(
+      Address low_bound, Address high_bound, Address addr) {
+    return low_bound <= addr && addr <= high_bound;
+  }
 
  private:
-  void AdvanceOneFrame();
+  class StackAddressValidator {
+   public:
+    StackAddressValidator(Address low_bound, Address high_bound)
+        : low_bound_(low_bound), high_bound_(high_bound) { }
+    bool IsValid(Address addr) const {
+      return IsWithinBounds(low_bound_, high_bound_, addr);
+    }
+   private:
+    Address low_bound_;
+    Address high_bound_;
+  };
+
+  class ExitFrameValidator {
+   public:
+    explicit ExitFrameValidator(const StackAddressValidator& validator)
+        : validator_(validator) { }
+    ExitFrameValidator(Address low_bound, Address high_bound)
+        : validator_(low_bound, high_bound) { }
+    bool IsValidFP(Address fp);
+   private:
+    StackAddressValidator validator_;
+  };
 
   bool IsValidStackAddress(Address addr) const {
-    return low_bound_ <= addr && addr <= high_bound_;
+    return stack_validator_.IsValid(addr);
   }
+  bool CanIterateHandles(StackFrame* frame, StackHandler* handler);
   bool IsValidFrame(StackFrame* frame) const;
   bool IsValidCaller(StackFrame* frame);
-  bool IsValidExitFrame(Address fp) const;
-  bool IsValidTop(ThreadLocalTop* top) const;
+  static bool IsValidTop(Isolate* isolate,
+                         Address low_bound, Address high_bound);
 
-  const Address low_bound_;
-  const Address high_bound_;
-  StackFrame::Type top_frame_type_;
-  ExternalCallbackScope* external_callback_scope_;
+  // This is a nasty hack to make sure the active count is incremented
+  // before the constructor for the embedded iterator is invoked. This
+  // is needed because the constructor will start looking at frames
+  // right away and we need to make sure it doesn't start inspecting
+  // heap objects.
+  class ActiveCountMaintainer BASE_EMBEDDED {
+   public:
+    explicit ActiveCountMaintainer(Isolate* isolate);
+    ~ActiveCountMaintainer();
+   private:
+    Isolate* isolate_;
+  };
+
+  ActiveCountMaintainer maintainer_;
+  StackAddressValidator stack_validator_;
+  const bool is_valid_top_;
+  const bool is_valid_fp_;
+  const bool is_working_iterator_;
+  bool iteration_done_;
+  StackFrameIterator iterator_;
+};
+
+
+typedef JavaScriptFrameIteratorTemp<SafeStackFrameIterator>
+    SafeJavaScriptFrameIterator;
+
+
+class SafeStackTraceFrameIterator: public SafeJavaScriptFrameIterator {
+ public:
+  explicit SafeStackTraceFrameIterator(Isolate* isolate,
+                                       Address fp, Address sp,
+                                       Address low_bound, Address high_bound);
+  void Advance();
 };
 
 
 class StackFrameLocator BASE_EMBEDDED {
  public:
-  explicit StackFrameLocator(Isolate* isolate) : iterator_(isolate) {}
-
   // Find the nth JavaScript frame on the stack. The caller must
   // guarantee that such a frame exists.
   JavaScriptFrame* FindJavaScriptFrame(int n);
@@ -924,7 +898,7 @@ class StackFrameLocator BASE_EMBEDDED {
 
 // Reads all frames on the current stack and copies them into the current
 // zone memory.
-Vector<StackFrame*> CreateStackMap(Isolate* isolate, Zone* zone);
+Vector<StackFrame*> CreateStackMap(Zone* zone);
 
 } }  // namespace v8::internal
 

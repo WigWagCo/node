@@ -496,13 +496,11 @@ static void server_poll_cb(uv_poll_t* handle, int status, int events) {
 
 
 static void start_server(void) {
-  server_context_t* context;
-  struct sockaddr_in addr;
   uv_os_sock_t sock;
+  server_context_t* context;
   int r;
 
-  ASSERT(0 == uv_ip4_addr("127.0.0.1", TEST_PORT, &addr));
-  sock = create_nonblocking_bound_socket(addr);
+  sock = create_nonblocking_bound_socket(uv_ip4_addr("127.0.0.1", TEST_PORT));
   context = create_server_context(sock);
 
   r = listen(sock, 100);
@@ -516,14 +514,10 @@ static void start_server(void) {
 static void start_client(void) {
   uv_os_sock_t sock;
   connection_context_t* context;
-  struct sockaddr_in server_addr;
-  struct sockaddr_in addr;
+  struct sockaddr_in server_addr = uv_ip4_addr("127.0.0.1", TEST_PORT);
   int r;
 
-  ASSERT(0 == uv_ip4_addr("127.0.0.1", TEST_PORT, &server_addr));
-  ASSERT(0 == uv_ip4_addr("0.0.0.0", 0, &addr));
-
-  sock = create_nonblocking_bound_socket(addr);
+  sock = create_nonblocking_bound_socket(uv_ip4_addr("0.0.0.0", 0));
   context = create_connection_context(sock, 0);
 
   context->events = UV_READABLE | UV_WRITABLE;

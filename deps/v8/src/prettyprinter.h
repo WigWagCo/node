@@ -74,8 +74,6 @@ class PrettyPrinter: public AstVisitor {
   void PrintDeclarations(ZoneList<Declaration*>* declarations);
   void PrintFunctionLiteral(FunctionLiteral* function);
   void PrintCaseClause(CaseClause* clause);
-
-  DEFINE_AST_VISITOR_SUBCLASS_MEMBERS();
 };
 
 
@@ -106,7 +104,7 @@ class AstPrinter: public PrettyPrinter {
   void PrintLiteralWithModeIndented(const char* info,
                                     Variable* var,
                                     Handle<Object> value);
-  void PrintLabelsIndented(ZoneStringList* labels);
+  void PrintLabelsIndented(const char* info, ZoneStringList* labels);
 
   void inc_indent() { indent_++; }
   void dec_indent() { indent_--; }

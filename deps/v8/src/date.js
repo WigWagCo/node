@@ -25,15 +25,19 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
 // This file relies on the fact that the following declarations have been made
 // in v8natives.js:
 // var $isFinite = GlobalIsFinite;
 
-var $Date = global.Date;
-
 // -------------------------------------------------------------------
 
 // This file contains date support implemented in JavaScript.
+
+// Keep reference to original values of some global properties.  This
+// has the added benefit that the code in this file is isolated from
+// changes to these properties.
+var $Date = global.Date;
 
 // Helper function to throw error.
 function ThrowDateTypeError() {
@@ -103,7 +107,7 @@ function MakeDay(year, month, date) {
   }
 
   // Now we rely on year and month being SMIs.
-  return %DateMakeDay(year | 0, month | 0) + date - 1;
+  return %DateMakeDay(year, month) + date - 1;
 }
 
 
@@ -138,7 +142,7 @@ var Date_cache = {
 };
 
 
-function DateConstructor(year, month, date, hours, minutes, seconds, ms) {
+%SetCode($Date, function(year, month, date, hours, minutes, seconds, ms) {
   if (!%_IsConstructCall()) {
     // ECMA 262 - 15.9.2
     return (new $Date()).toString();
@@ -195,7 +199,10 @@ function DateConstructor(year, month, date, hours, minutes, seconds, ms) {
     value = MakeDate(day, time);
     SET_LOCAL_DATE_VALUE(this, value);
   }
-}
+});
+
+
+%FunctionSetPrototype($Date, new $Date($NaN));
 
 
 var WeekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -760,10 +767,6 @@ function ResetDateCache() {
 
 function SetUpDate() {
   %CheckIsBootstrapping();
-
-  %SetCode($Date, DateConstructor);
-  %FunctionSetPrototype($Date, new $Date($NaN));
-
   // Set up non-enumerable properties of the Date object itself.
   InstallFunctions($Date, DONT_ENUM, $Array(
     "UTC", DateUTC,

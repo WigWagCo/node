@@ -42,29 +42,32 @@ namespace v8 {
 namespace internal {
 
 
-TypeInfo TypeInfo::FromValue(Handle<Object> value) {
+TypeInfo TypeInfo::TypeFromValue(Handle<Object> value) {
+  TypeInfo info;
   if (value->IsSmi()) {
-    return TypeInfo::Smi();
+    info = TypeInfo::Smi();
   } else if (value->IsHeapNumber()) {
-    return TypeInfo::IsInt32Double(HeapNumber::cast(*value)->value())
+    info = TypeInfo::IsInt32Double(HeapNumber::cast(*value)->value())
         ? TypeInfo::Integer32()
         : TypeInfo::Double();
   } else if (value->IsString()) {
-    return TypeInfo::String();
+    info = TypeInfo::String();
+  } else {
+    info = TypeInfo::Unknown();
   }
-  return TypeInfo::Unknown();
+  return info;
 }
 
 
 TypeFeedbackOracle::TypeFeedbackOracle(Handle<Code> code,
                                        Handle<Context> native_context,
                                        Isolate* isolate,
-                                       Zone* zone)
-    : native_context_(native_context),
-      isolate_(isolate),
-      zone_(zone) {
+                                       Zone* zone) {
+  native_context_ = native_context;
+  isolate_ = isolate;
+  zone_ = zone;
   BuildDictionary(code);
-  ASSERT(dictionary_->IsDictionary());
+  ASSERT(reinterpret_cast<Address>(*dictionary_.location()) != kHandleZapValue);
 }
 
 
@@ -75,27 +78,9 @@ static uint32_t IdToKey(TypeFeedbackId ast_id) {
 
 Handle<Object> TypeFeedbackOracle::GetInfo(TypeFeedbackId ast_id) {
   int entry = dictionary_->FindEntry(IdToKey(ast_id));
-  if (entry != UnseededNumberDictionary::kNotFound) {
-    Object* value = dictionary_->ValueAt(entry);
-    if (value->IsCell()) {
-      Cell* cell = Cell::cast(value);
-      return Handle<Object>(cell->value(), isolate_);
-    } else {
-      return Handle<Object>(value, isolate_);
-    }
-  }
-  return Handle<Object>::cast(isolate_->factory()->undefined_value());
-}
-
-
-Handle<Cell> TypeFeedbackOracle::GetInfoCell(
-    TypeFeedbackId ast_id) {
-  int entry = dictionary_->FindEntry(IdToKey(ast_id));
-  if (entry != UnseededNumberDictionary::kNotFound) {
-    Cell* cell = Cell::cast(dictionary_->ValueAt(entry));
-    return Handle<Cell>(cell, isolate_);
-  }
-  return Handle<Cell>::null();
+  return entry != UnseededNumberDictionary::kNotFound
+      ? Handle<Object>(dictionary_->ValueAt(entry))
+      : Handle<Object>::cast(isolate_->factory()->undefined_value());
 }
 
 
@@ -120,30 +105,22 @@ bool TypeFeedbackOracle::LoadIsMonomorphicNormal(Property* expr) {
         Code::ExtractTypeFromFlags(code->flags()) == Code::NORMAL;
     if (!preliminary_checks) return false;
     Map* map = code->FindFirstMap();
-    if (map == NULL) return false;
-    map = map->CurrentMapForDeprecated();
     return map != NULL && !CanRetainOtherContext(map, *native_context_);
   }
   return false;
 }
 
 
-bool TypeFeedbackOracle::LoadIsPolymorphic(Property* expr) {
+bool TypeFeedbackOracle::LoadIsMegamorphicWithTypeInfo(Property* expr) {
   Handle<Object> map_or_code = GetInfo(expr->PropertyFeedbackId());
   if (map_or_code->IsCode()) {
     Handle<Code> code = Handle<Code>::cast(map_or_code);
-    return code->is_keyed_load_stub() && code->ic_state() == POLYMORPHIC;
+    Builtins* builtins = isolate_->builtins();
+    return code->is_keyed_load_stub() &&
+        *code != builtins->builtin(Builtins::kKeyedLoadIC_Generic) &&
+        code->ic_state() == MEGAMORPHIC;
   }
   return false;
-}
-
-
-bool TypeFeedbackOracle::StoreIsUninitialized(TypeFeedbackId ast_id) {
-  Handle<Object> map_or_code = GetInfo(ast_id);
-  if (map_or_code->IsMap()) return false;
-  if (!map_or_code->IsCode()) return false;
-  Handle<Code> code = Handle<Code>::cast(map_or_code);
-  return code->ic_state() == UNINITIALIZED;
 }
 
 
@@ -152,33 +129,35 @@ bool TypeFeedbackOracle::StoreIsMonomorphicNormal(TypeFeedbackId ast_id) {
   if (map_or_code->IsMap()) return true;
   if (map_or_code->IsCode()) {
     Handle<Code> code = Handle<Code>::cast(map_or_code);
-    bool standard_store = FLAG_compiled_keyed_stores ||
-        (Code::GetKeyedAccessStoreMode(code->extra_ic_state()) ==
-         STANDARD_STORE);
+    bool allow_growth =
+        Code::GetKeyedAccessGrowMode(code->extra_ic_state()) ==
+        ALLOW_JSARRAY_GROWTH;
     bool preliminary_checks =
         code->is_keyed_store_stub() &&
-        standard_store &&
+        !allow_growth &&
         code->ic_state() == MONOMORPHIC &&
         Code::ExtractTypeFromFlags(code->flags()) == Code::NORMAL;
     if (!preliminary_checks) return false;
     Map* map = code->FindFirstMap();
-    if (map == NULL) return false;
-    map = map->CurrentMapForDeprecated();
     return map != NULL && !CanRetainOtherContext(map, *native_context_);
   }
   return false;
 }
 
 
-bool TypeFeedbackOracle::StoreIsKeyedPolymorphic(TypeFeedbackId ast_id) {
+bool TypeFeedbackOracle::StoreIsMegamorphicWithTypeInfo(TypeFeedbackId ast_id) {
   Handle<Object> map_or_code = GetInfo(ast_id);
   if (map_or_code->IsCode()) {
     Handle<Code> code = Handle<Code>::cast(map_or_code);
-    bool standard_store = FLAG_compiled_keyed_stores ||
-        (Code::GetKeyedAccessStoreMode(code->extra_ic_state()) ==
-         STANDARD_STORE);
-    return code->is_keyed_store_stub() && standard_store &&
-        code->ic_state() == POLYMORPHIC;
+    Builtins* builtins = isolate_->builtins();
+    bool allow_growth =
+        Code::GetKeyedAccessGrowMode(code->extra_ic_state()) ==
+        ALLOW_JSARRAY_GROWTH;
+    return code->is_keyed_store_stub() &&
+        !allow_growth &&
+        *code != builtins->builtin(Builtins::kKeyedStoreIC_Generic) &&
+        *code != builtins->builtin(Builtins::kKeyedStoreIC_Generic_Strict) &&
+        code->ic_state() == MEGAMORPHIC;
   }
   return false;
 }
@@ -186,14 +165,13 @@ bool TypeFeedbackOracle::StoreIsKeyedPolymorphic(TypeFeedbackId ast_id) {
 
 bool TypeFeedbackOracle::CallIsMonomorphic(Call* expr) {
   Handle<Object> value = GetInfo(expr->CallFeedbackId());
-  return value->IsMap() || value->IsAllocationSite() || value->IsJSFunction() ||
-      value->IsSmi();
+  return value->IsMap() || value->IsSmi() || value->IsJSFunction();
 }
 
 
 bool TypeFeedbackOracle::CallNewIsMonomorphic(CallNew* expr) {
-  Handle<Object> info = GetInfo(expr->CallNewFeedbackId());
-  return info->IsAllocationSite() || info->IsJSFunction();
+  Handle<Object> value = GetInfo(expr->CallNewFeedbackId());
+  return value->IsJSFunction();
 }
 
 
@@ -204,11 +182,10 @@ bool TypeFeedbackOracle::ObjectLiteralStoreIsMonomorphic(
 }
 
 
-byte TypeFeedbackOracle::ForInType(ForInStatement* stmt) {
+bool TypeFeedbackOracle::IsForInFastCase(ForInStatement* stmt) {
   Handle<Object> value = GetInfo(stmt->ForInFeedbackId());
   return value->IsSmi() &&
-      Smi::cast(*value)->value() == TypeFeedbackCells::kForInFastCaseMarker
-          ? ForInStatement::FAST_FOR_IN : ForInStatement::SLOW_FOR_IN;
+      Smi::cast(*value)->value() == TypeFeedbackCells::kForInFastCaseMarker;
 }
 
 
@@ -217,10 +194,11 @@ Handle<Map> TypeFeedbackOracle::LoadMonomorphicReceiverType(Property* expr) {
   Handle<Object> map_or_code = GetInfo(expr->PropertyFeedbackId());
   if (map_or_code->IsCode()) {
     Handle<Code> code = Handle<Code>::cast(map_or_code);
-    Map* map = code->FindFirstMap()->CurrentMapForDeprecated();
-    return map == NULL || CanRetainOtherContext(map, *native_context_)
+    Map* first_map = code->FindFirstMap();
+    ASSERT(first_map != NULL);
+    return CanRetainOtherContext(first_map, *native_context_)
         ? Handle<Map>::null()
-        : Handle<Map>(map);
+        : Handle<Map>(first_map);
   }
   return Handle<Map>::cast(map_or_code);
 }
@@ -232,34 +210,21 @@ Handle<Map> TypeFeedbackOracle::StoreMonomorphicReceiverType(
   Handle<Object> map_or_code = GetInfo(ast_id);
   if (map_or_code->IsCode()) {
     Handle<Code> code = Handle<Code>::cast(map_or_code);
-    Map* map = code->FindFirstMap()->CurrentMapForDeprecated();
-    return map == NULL || CanRetainOtherContext(map, *native_context_)
+    Map* first_map = code->FindFirstMap();
+    ASSERT(first_map != NULL);
+    return CanRetainOtherContext(first_map, *native_context_)
         ? Handle<Map>::null()
-        : Handle<Map>(map);
+        : Handle<Map>(first_map);
   }
   return Handle<Map>::cast(map_or_code);
-}
-
-
-KeyedAccessStoreMode TypeFeedbackOracle::GetStoreMode(
-    TypeFeedbackId ast_id) {
-  Handle<Object> map_or_code = GetInfo(ast_id);
-  if (map_or_code->IsCode()) {
-    Handle<Code> code = Handle<Code>::cast(map_or_code);
-    if (code->kind() == Code::KEYED_STORE_IC) {
-      return Code::GetKeyedAccessStoreMode(code->extra_ic_state());
-    }
-  }
-  return STANDARD_STORE;
 }
 
 
 void TypeFeedbackOracle::LoadReceiverTypes(Property* expr,
                                            Handle<String> name,
                                            SmallMapList* types) {
-  Code::Flags flags = Code::ComputeFlags(
-      Code::STUB, MONOMORPHIC, Code::kNoExtraICState,
-      Code::NORMAL, Code::LOAD_IC);
+  Code::Flags flags =
+      Code::ComputeMonomorphicFlags(Code::LOAD_IC, Code::NORMAL);
   CollectReceiverTypes(expr->PropertyFeedbackId(), name, flags, types);
 }
 
@@ -267,9 +232,8 @@ void TypeFeedbackOracle::LoadReceiverTypes(Property* expr,
 void TypeFeedbackOracle::StoreReceiverTypes(Assignment* expr,
                                             Handle<String> name,
                                             SmallMapList* types) {
-  Code::Flags flags = Code::ComputeFlags(
-      Code::STUB, MONOMORPHIC, Code::kNoExtraICState,
-      Code::NORMAL, Code::STORE_IC);
+  Code::Flags flags =
+      Code::ComputeMonomorphicFlags(Code::STORE_IC, Code::NORMAL);
   CollectReceiverTypes(expr->AssignmentFeedbackId(), name, flags, types);
 }
 
@@ -286,10 +250,10 @@ void TypeFeedbackOracle::CallReceiverTypes(Call* expr,
       CallIC::Contextual::encode(call_kind == CALL_AS_FUNCTION);
 
   Code::Flags flags = Code::ComputeMonomorphicFlags(Code::CALL_IC,
-                                                    extra_ic_state,
                                                     Code::NORMAL,
-                                                    arity,
-                                                    OWN_MAP);
+                                                    extra_ic_state,
+                                                    OWN_MAP,
+                                                    arity);
   CollectReceiverTypes(expr->CallFeedbackId(), name, flags, types);
 }
 
@@ -303,28 +267,35 @@ CheckType TypeFeedbackOracle::GetCallCheckType(Call* expr) {
 }
 
 
-Handle<JSFunction> TypeFeedbackOracle::GetCallTarget(Call* expr) {
-  Handle<Object> info = GetInfo(expr->CallFeedbackId());
-  if (info->IsAllocationSite()) {
-    return Handle<JSFunction>(isolate_->global_context()->array_function());
-  } else {
-    return Handle<JSFunction>::cast(info);
+Handle<JSObject> TypeFeedbackOracle::GetPrototypeForPrimitiveCheck(
+    CheckType check) {
+  JSFunction* function = NULL;
+  switch (check) {
+    case RECEIVER_MAP_CHECK:
+      UNREACHABLE();
+      break;
+    case STRING_CHECK:
+      function = native_context_->string_function();
+      break;
+    case NUMBER_CHECK:
+      function = native_context_->number_function();
+      break;
+    case BOOLEAN_CHECK:
+      function = native_context_->boolean_function();
+      break;
   }
+  ASSERT(function != NULL);
+  return Handle<JSObject>(JSObject::cast(function->instance_prototype()));
+}
+
+
+Handle<JSFunction> TypeFeedbackOracle::GetCallTarget(Call* expr) {
+  return Handle<JSFunction>::cast(GetInfo(expr->CallFeedbackId()));
 }
 
 
 Handle<JSFunction> TypeFeedbackOracle::GetCallNewTarget(CallNew* expr) {
-  Handle<Object> info = GetInfo(expr->CallNewFeedbackId());
-  if (info->IsAllocationSite()) {
-    return Handle<JSFunction>(isolate_->global_context()->array_function());
-  } else {
-    return Handle<JSFunction>::cast(info);
-  }
-}
-
-
-Handle<Cell> TypeFeedbackOracle::GetCallNewAllocationInfoCell(CallNew* expr) {
-  return GetInfoCell(expr->CallNewFeedbackId());
+  return Handle<JSFunction>::cast(GetInfo(expr->CallNewFeedbackId()));
 }
 
 
@@ -341,79 +312,163 @@ bool TypeFeedbackOracle::LoadIsBuiltin(Property* expr, Builtins::Name id) {
 }
 
 
-bool TypeFeedbackOracle::LoadIsStub(Property* expr, ICStub* stub) {
-  Handle<Object> object = GetInfo(expr->PropertyFeedbackId());
+TypeInfo TypeFeedbackOracle::CompareType(CompareOperation* expr) {
+  Handle<Object> object = GetInfo(expr->CompareOperationFeedbackId());
+  TypeInfo unknown = TypeInfo::Unknown();
+  if (!object->IsCode()) return unknown;
+  Handle<Code> code = Handle<Code>::cast(object);
+  if (!code->is_compare_ic_stub()) return unknown;
+
+  CompareIC::State state = static_cast<CompareIC::State>(code->compare_state());
+  switch (state) {
+    case CompareIC::UNINITIALIZED:
+      // Uninitialized means never executed.
+      return TypeInfo::Uninitialized();
+    case CompareIC::SMIS:
+      return TypeInfo::Smi();
+    case CompareIC::HEAP_NUMBERS:
+      return TypeInfo::Number();
+    case CompareIC::SYMBOLS:
+    case CompareIC::STRINGS:
+      return TypeInfo::String();
+    case CompareIC::OBJECTS:
+    case CompareIC::KNOWN_OBJECTS:
+      // TODO(kasperl): We really need a type for JS objects here.
+      return TypeInfo::NonPrimitive();
+    case CompareIC::GENERIC:
+    default:
+      return unknown;
+  }
+}
+
+
+bool TypeFeedbackOracle::IsSymbolCompare(CompareOperation* expr) {
+  Handle<Object> object = GetInfo(expr->CompareOperationFeedbackId());
   if (!object->IsCode()) return false;
   Handle<Code> code = Handle<Code>::cast(object);
-  if (!code->is_load_stub()) return false;
-  if (code->ic_state() != MONOMORPHIC) return false;
-  return stub->Describes(*code);
+  if (!code->is_compare_ic_stub()) return false;
+  CompareIC::State state = static_cast<CompareIC::State>(code->compare_state());
+  return state == CompareIC::SYMBOLS;
 }
 
 
-void TypeFeedbackOracle::CompareType(TypeFeedbackId id,
-                                     Handle<Type>* left_type,
-                                     Handle<Type>* right_type,
-                                     Handle<Type>* combined_type) {
-  Handle<Object> info = GetInfo(id);
-  if (!info->IsCode()) {
-    // For some comparisons we don't have ICs, e.g. LiteralCompareTypeof.
-    *left_type = *right_type = *combined_type = handle(Type::None(), isolate_);
-    return;
+Handle<Map> TypeFeedbackOracle::GetCompareMap(CompareOperation* expr) {
+  Handle<Object> object = GetInfo(expr->CompareOperationFeedbackId());
+  if (!object->IsCode()) return Handle<Map>::null();
+  Handle<Code> code = Handle<Code>::cast(object);
+  if (!code->is_compare_ic_stub()) return Handle<Map>::null();
+  CompareIC::State state = static_cast<CompareIC::State>(code->compare_state());
+  if (state != CompareIC::KNOWN_OBJECTS) {
+    return Handle<Map>::null();
   }
-  Handle<Code> code = Handle<Code>::cast(info);
+  Map* first_map = code->FindFirstMap();
+  ASSERT(first_map != NULL);
+  return CanRetainOtherContext(first_map, *native_context_)
+      ? Handle<Map>::null()
+      : Handle<Map>(first_map);
+}
 
-  Handle<Map> map;
-  Map* raw_map = code->FindFirstMap();
-  if (raw_map != NULL) {
-    raw_map = raw_map->CurrentMapForDeprecated();
-    if (raw_map != NULL && !CanRetainOtherContext(raw_map, *native_context_)) {
-      map = handle(raw_map, isolate_);
+
+TypeInfo TypeFeedbackOracle::UnaryType(UnaryOperation* expr) {
+  Handle<Object> object = GetInfo(expr->UnaryOperationFeedbackId());
+  TypeInfo unknown = TypeInfo::Unknown();
+  if (!object->IsCode()) return unknown;
+  Handle<Code> code = Handle<Code>::cast(object);
+  ASSERT(code->is_unary_op_stub());
+  UnaryOpIC::TypeInfo type = static_cast<UnaryOpIC::TypeInfo>(
+      code->unary_op_type());
+  switch (type) {
+    case UnaryOpIC::SMI:
+      return TypeInfo::Smi();
+    case UnaryOpIC::HEAP_NUMBER:
+      return TypeInfo::Double();
+    default:
+      return unknown;
+  }
+}
+
+
+TypeInfo TypeFeedbackOracle::BinaryType(BinaryOperation* expr) {
+  Handle<Object> object = GetInfo(expr->BinaryOperationFeedbackId());
+  TypeInfo unknown = TypeInfo::Unknown();
+  if (!object->IsCode()) return unknown;
+  Handle<Code> code = Handle<Code>::cast(object);
+  if (code->is_binary_op_stub()) {
+    BinaryOpIC::TypeInfo type = static_cast<BinaryOpIC::TypeInfo>(
+        code->binary_op_type());
+    BinaryOpIC::TypeInfo result_type = static_cast<BinaryOpIC::TypeInfo>(
+        code->binary_op_result_type());
+
+    switch (type) {
+      case BinaryOpIC::UNINITIALIZED:
+        // Uninitialized means never executed.
+        return TypeInfo::Uninitialized();
+      case BinaryOpIC::SMI:
+        switch (result_type) {
+          case BinaryOpIC::UNINITIALIZED:
+            if (expr->op() == Token::DIV) {
+              return TypeInfo::Double();
+            }
+            return TypeInfo::Smi();
+          case BinaryOpIC::SMI:
+            return TypeInfo::Smi();
+          case BinaryOpIC::INT32:
+            return TypeInfo::Integer32();
+          case BinaryOpIC::HEAP_NUMBER:
+            return TypeInfo::Double();
+          default:
+            return unknown;
+        }
+      case BinaryOpIC::INT32:
+        if (expr->op() == Token::DIV ||
+            result_type == BinaryOpIC::HEAP_NUMBER) {
+          return TypeInfo::Double();
+        }
+        return TypeInfo::Integer32();
+      case BinaryOpIC::HEAP_NUMBER:
+        return TypeInfo::Double();
+      case BinaryOpIC::BOTH_STRING:
+        return TypeInfo::String();
+      case BinaryOpIC::STRING:
+      case BinaryOpIC::GENERIC:
+        return unknown;
+     default:
+        return unknown;
     }
   }
-
-  if (code->is_compare_ic_stub()) {
-    int stub_minor_key = code->stub_info();
-    CompareIC::StubInfoToType(
-        stub_minor_key, left_type, right_type, combined_type, map, isolate());
-  } else if (code->is_compare_nil_ic_stub()) {
-    CompareNilICStub stub(code->extended_extra_ic_state());
-    *combined_type = stub.GetType(isolate_, map);
-    *left_type = *right_type = stub.GetInputType(isolate_, map);
-  }
+  return unknown;
 }
 
 
-void TypeFeedbackOracle::BinaryType(TypeFeedbackId id,
-                                    Handle<Type>* left,
-                                    Handle<Type>* right,
-                                    Handle<Type>* result,
-                                    Maybe<int>* fixed_right_arg) {
-  Handle<Object> object = GetInfo(id);
-  if (!object->IsCode()) {
-    // For some binary ops we don't have ICs, e.g. Token::COMMA.
-    *left = *right = *result = handle(Type::None(), isolate_);
-    return;
-  }
+TypeInfo TypeFeedbackOracle::SwitchType(CaseClause* clause) {
+  Handle<Object> object = GetInfo(clause->CompareId());
+  TypeInfo unknown = TypeInfo::Unknown();
+  if (!object->IsCode()) return unknown;
   Handle<Code> code = Handle<Code>::cast(object);
-  ASSERT(code->is_binary_op_stub());
+  if (!code->is_compare_ic_stub()) return unknown;
 
-  int minor_key = code->stub_info();
-  BinaryOpIC::StubInfoToType(minor_key, left, right, result, isolate());
-  *fixed_right_arg =
-      BinaryOpStub::decode_fixed_right_arg_from_minor_key(minor_key);
-}
-
-
-Handle<Type> TypeFeedbackOracle::ClauseType(TypeFeedbackId id) {
-  Handle<Object> info = GetInfo(id);
-  Handle<Type> result(Type::None(), isolate_);
-  if (info->IsCode() && Handle<Code>::cast(info)->is_compare_ic_stub()) {
-    Handle<Code> code = Handle<Code>::cast(info);
-    CompareIC::State state = ICCompareStub::CompareState(code->stub_info());
-    result = CompareIC::StateToType(isolate_, state);
+  CompareIC::State state = static_cast<CompareIC::State>(code->compare_state());
+  switch (state) {
+    case CompareIC::UNINITIALIZED:
+      // Uninitialized means never executed.
+      // TODO(fschneider): Introduce a separate value for never-executed ICs.
+      return unknown;
+    case CompareIC::SMIS:
+      return TypeInfo::Smi();
+    case CompareIC::STRINGS:
+      return TypeInfo::String();
+    case CompareIC::SYMBOLS:
+      return TypeInfo::Symbol();
+    case CompareIC::HEAP_NUMBERS:
+      return TypeInfo::Number();
+    case CompareIC::OBJECTS:
+    case CompareIC::KNOWN_OBJECTS:
+      // TODO(kasperl): We really need a type for JS objects here.
+      return TypeInfo::NonPrimitive();
+    case CompareIC::GENERIC:
+    default:
+      return unknown;
   }
-  return result;
 }
 
 
@@ -424,21 +479,17 @@ TypeInfo TypeFeedbackOracle::IncrementType(CountOperation* expr) {
   Handle<Code> code = Handle<Code>::cast(object);
   if (!code->is_binary_op_stub()) return unknown;
 
-  BinaryOpIC::TypeInfo left_type, right_type, unused_result_type;
-  BinaryOpStub::decode_types_from_minor_key(code->stub_info(), &left_type,
-                                            &right_type, &unused_result_type);
-  // CountOperations should always have +1 or -1 as their right input.
-  ASSERT(right_type == BinaryOpIC::SMI ||
-         right_type == BinaryOpIC::UNINITIALIZED);
-
-  switch (left_type) {
+  BinaryOpIC::TypeInfo type = static_cast<BinaryOpIC::TypeInfo>(
+      code->binary_op_type());
+  switch (type) {
     case BinaryOpIC::UNINITIALIZED:
     case BinaryOpIC::SMI:
       return TypeInfo::Smi();
     case BinaryOpIC::INT32:
       return TypeInfo::Integer32();
-    case BinaryOpIC::NUMBER:
+    case BinaryOpIC::HEAP_NUMBER:
       return TypeInfo::Double();
+    case BinaryOpIC::BOTH_STRING:
     case BinaryOpIC::STRING:
     case BinaryOpIC::GENERIC:
       return unknown;
@@ -450,20 +501,6 @@ TypeInfo TypeFeedbackOracle::IncrementType(CountOperation* expr) {
 }
 
 
-void TypeFeedbackOracle::CollectPolymorphicMaps(Handle<Code> code,
-                                                SmallMapList* types) {
-  MapHandleList maps;
-  code->FindAllMaps(&maps);
-  types->Reserve(maps.length(), zone());
-  for (int i = 0; i < maps.length(); i++) {
-    Handle<Map> map(maps.at(i));
-    if (!CanRetainOtherContext(*map, *native_context_)) {
-      types->AddMapIfMissing(map, zone());
-    }
-  }
-}
-
-
 void TypeFeedbackOracle::CollectReceiverTypes(TypeFeedbackId ast_id,
                                               Handle<String> name,
                                               Code::Flags flags,
@@ -471,21 +508,19 @@ void TypeFeedbackOracle::CollectReceiverTypes(TypeFeedbackId ast_id,
   Handle<Object> object = GetInfo(ast_id);
   if (object->IsUndefined() || object->IsSmi()) return;
 
-  if (object.is_identical_to(isolate_->builtins()->StoreIC_GlobalProxy())) {
+  if (*object ==
+      isolate_->builtins()->builtin(Builtins::kStoreIC_GlobalProxy)) {
     // TODO(fschneider): We could collect the maps and signal that
     // we need a generic store (or load) here.
-    ASSERT(Handle<Code>::cast(object)->ic_state() == GENERIC);
+    ASSERT(Handle<Code>::cast(object)->ic_state() == MEGAMORPHIC);
   } else if (object->IsMap()) {
-    types->AddMapIfMissing(Handle<Map>::cast(object), zone());
-  } else if (Handle<Code>::cast(object)->ic_state() == POLYMORPHIC ||
-             Handle<Code>::cast(object)->ic_state() == MONOMORPHIC) {
-    CollectPolymorphicMaps(Handle<Code>::cast(object), types);
+    types->Add(Handle<Map>::cast(object), zone());
   } else if (FLAG_collect_megamorphic_maps_from_stub_cache &&
       Handle<Code>::cast(object)->ic_state() == MEGAMORPHIC) {
     types->Reserve(4, zone());
     ASSERT(object->IsCode());
     isolate_->stub_cache()->CollectMatchingMaps(types,
-                                                name,
+                                                *name,
                                                 flags,
                                                 native_context_,
                                                 zone());
@@ -527,6 +562,15 @@ bool TypeFeedbackOracle::CanRetainOtherContext(JSFunction* function,
 }
 
 
+static void AddMapIfMissing(Handle<Map> map, SmallMapList* list,
+                            Zone* zone) {
+  for (int i = 0; i < list->length(); ++i) {
+    if (list->at(i).is_identical_to(map)) return;
+  }
+  list->Add(map, zone);
+}
+
+
 void TypeFeedbackOracle::CollectKeyedReceiverTypes(TypeFeedbackId ast_id,
                                                    SmallMapList* types) {
   Handle<Object> object = GetInfo(ast_id);
@@ -534,25 +578,24 @@ void TypeFeedbackOracle::CollectKeyedReceiverTypes(TypeFeedbackId ast_id,
   Handle<Code> code = Handle<Code>::cast(object);
   if (code->kind() == Code::KEYED_LOAD_IC ||
       code->kind() == Code::KEYED_STORE_IC) {
-    CollectPolymorphicMaps(code, types);
+    AssertNoAllocation no_allocation;
+    int mask = RelocInfo::ModeMask(RelocInfo::EMBEDDED_OBJECT);
+    for (RelocIterator it(*code, mask); !it.done(); it.next()) {
+      RelocInfo* info = it.rinfo();
+      Object* object = info->target_object();
+      if (object->IsMap()) {
+        Map* map = Map::cast(object);
+        if (!CanRetainOtherContext(map, *native_context_)) {
+          AddMapIfMissing(Handle<Map>(map), types, zone());
+        }
+      }
+    }
   }
 }
 
 
-void TypeFeedbackOracle::CollectPolymorphicStoreReceiverTypes(
-    TypeFeedbackId ast_id,
-    SmallMapList* types) {
+byte TypeFeedbackOracle::ToBooleanTypes(TypeFeedbackId ast_id) {
   Handle<Object> object = GetInfo(ast_id);
-  if (!object->IsCode()) return;
-  Handle<Code> code = Handle<Code>::cast(object);
-  if (code->kind() == Code::STORE_IC && code->ic_state() == POLYMORPHIC) {
-    CollectPolymorphicMaps(code, types);
-  }
-}
-
-
-byte TypeFeedbackOracle::ToBooleanTypes(TypeFeedbackId id) {
-  Handle<Object> object = GetInfo(id);
   return object->IsCode() ? Handle<Code>::cast(object)->to_boolean_state() : 0;
 }
 
@@ -562,9 +605,9 @@ byte TypeFeedbackOracle::ToBooleanTypes(TypeFeedbackId id) {
 // dictionary (possibly triggering GC), and finally we relocate the collected
 // infos before we process them.
 void TypeFeedbackOracle::BuildDictionary(Handle<Code> code) {
-  DisallowHeapAllocation no_allocation;
+  AssertNoAllocation no_allocation;
   ZoneList<RelocInfo> infos(16, zone());
-  HandleScope scope(isolate_);
+  HandleScope scope;
   GetRelocInfos(code, &infos);
   CreateDictionary(code, &infos);
   ProcessRelocInfos(&infos);
@@ -585,14 +628,14 @@ void TypeFeedbackOracle::GetRelocInfos(Handle<Code> code,
 
 void TypeFeedbackOracle::CreateDictionary(Handle<Code> code,
                                           ZoneList<RelocInfo>* infos) {
-  AllowHeapAllocation allocation_allowed;
+  DisableAssertNoAllocation allocation_allowed;
   int cell_count = code->type_feedback_info()->IsTypeFeedbackInfo()
       ? TypeFeedbackInfo::cast(code->type_feedback_info())->
           type_feedback_cells()->CellCount()
       : 0;
   int length = infos->length() + cell_count;
   byte* old_start = code->instruction_start();
-  dictionary_ = isolate()->factory()->NewUnseededNumberDictionary(length);
+  dictionary_ = FACTORY->NewUnseededNumberDictionary(length);
   byte* new_start = code->instruction_start();
   RelocateRelocInfos(infos, old_start, new_start);
 }
@@ -630,8 +673,7 @@ void TypeFeedbackOracle::ProcessRelocInfos(ZoneList<RelocInfo>* infos) {
               SetInfo(ast_id, static_cast<Object*>(target));
             } else if (!CanRetainOtherContext(Map::cast(map),
                                               *native_context_)) {
-              Map* feedback = Map::cast(map)->CurrentMapForDeprecated();
-              if (feedback != NULL) SetInfo(ast_id, feedback);
+              SetInfo(ast_id, map);
             }
           }
         } else {
@@ -642,15 +684,15 @@ void TypeFeedbackOracle::ProcessRelocInfos(ZoneList<RelocInfo>* infos) {
       case Code::KEYED_LOAD_IC:
       case Code::KEYED_STORE_IC:
         if (target->ic_state() == MONOMORPHIC ||
-            target->ic_state() == POLYMORPHIC) {
+            target->ic_state() == MEGAMORPHIC) {
           SetInfo(ast_id, target);
         }
         break;
 
+      case Code::UNARY_OP_IC:
       case Code::BINARY_OP_IC:
       case Code::COMPARE_IC:
       case Code::TO_BOOLEAN_IC:
-      case Code::COMPARE_NIL_IC:
         SetInfo(ast_id, target);
         break;
 
@@ -668,14 +710,12 @@ void TypeFeedbackOracle::ProcessTypeFeedbackCells(Handle<Code> code) {
       TypeFeedbackInfo::cast(raw_info)->type_feedback_cells());
   for (int i = 0; i < cache->CellCount(); i++) {
     TypeFeedbackId ast_id = cache->AstId(i);
-    Cell* cell = cache->GetCell(i);
-    Object* value = cell->value();
+    Object* value = cache->Cell(i)->value();
     if (value->IsSmi() ||
-        value->IsAllocationSite() ||
         (value->IsJSFunction() &&
          !CanRetainOtherContext(JSFunction::cast(value),
                                 *native_context_))) {
-      SetInfo(ast_id, cell);
+      SetInfo(ast_id, value);
     }
   }
 }
@@ -693,16 +733,5 @@ void TypeFeedbackOracle::SetInfo(TypeFeedbackId ast_id, Object* target) {
   ASSERT(*dictionary_ == result);
 #endif
 }
-
-
-Representation Representation::FromType(TypeInfo info) {
-  if (info.IsUninitialized()) return Representation::None();
-  if (info.IsSmi()) return Representation::Smi();
-  if (info.IsInteger32()) return Representation::Integer32();
-  if (info.IsDouble()) return Representation::Double();
-  if (info.IsNumber()) return Representation::Double();
-  return Representation::Tagged();
-}
-
 
 } }  // namespace v8::internal

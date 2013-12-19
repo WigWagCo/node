@@ -44,14 +44,16 @@ using namespace v8::internal;
 
 typedef uint32_t (*HASH_FUNCTION)();
 
+static v8::Persistent<v8::Context> env;
+
 #define __ masm->
 
 
-void generate(MacroAssembler* masm, i::Vector<const uint8_t> string) {
+void generate(MacroAssembler* masm, i::Vector<const char> string) {
   // GenerateHashInit takes the first character as an argument so it can't
   // handle the zero length string.
   ASSERT(string.length() > 0);
-#if V8_TARGET_ARCH_IA32
+#ifdef V8_TARGET_ARCH_IA32
   __ push(ebx);
   __ push(ecx);
   __ mov(eax, Immediate(0));
@@ -116,7 +118,7 @@ void generate(MacroAssembler* masm, i::Vector<const uint8_t> string) {
 
 
 void generate(MacroAssembler* masm, uint32_t key) {
-#if V8_TARGET_ARCH_IA32
+#ifdef V8_TARGET_ARCH_IA32
   __ push(ebx);
   __ mov(eax, Immediate(key));
   __ GetNumberHash(eax, ebx);
@@ -150,26 +152,23 @@ void generate(MacroAssembler* masm, uint32_t key) {
 }
 
 
-void check(i::Vector<const uint8_t> string) {
-  Isolate* isolate = Isolate::Current();
-  Factory* factory = isolate->factory();
-  HandleScope scope(isolate);
-
+void check(i::Vector<const char> string) {
+  v8::HandleScope scope;
   v8::internal::byte buffer[2048];
-  MacroAssembler masm(isolate, buffer, sizeof buffer);
+  MacroAssembler masm(Isolate::Current(), buffer, sizeof buffer);
 
   generate(&masm, string);
 
   CodeDesc desc;
   masm.GetCode(&desc);
-  Handle<Object> undefined(isolate->heap()->undefined_value(), isolate);
-  Handle<Code> code = factory->NewCode(desc,
-                                       Code::ComputeFlags(Code::STUB),
-                                       undefined);
+  Code* code = Code::cast(HEAP->CreateCode(
+      desc,
+      Code::ComputeFlags(Code::STUB),
+      Handle<Object>(HEAP->undefined_value()))->ToObjectChecked());
   CHECK(code->IsCode());
 
   HASH_FUNCTION hash = FUNCTION_CAST<HASH_FUNCTION>(code->entry());
-  Handle<String> v8_string = factory->NewStringFromOneByte(string);
+  Handle<String> v8_string = FACTORY->NewStringFromAscii(string);
   v8_string->set_hash_field(String::kEmptyHashField);
 #ifdef USE_SIMULATOR
   uint32_t codegen_hash =
@@ -182,16 +181,8 @@ void check(i::Vector<const uint8_t> string) {
 }
 
 
-void check(i::Vector<const char> s) {
-  check(i::Vector<const uint8_t>::cast(s));
-}
-
-
 void check(uint32_t key) {
-  Isolate* isolate = Isolate::Current();
-  Factory* factory = isolate->factory();
-  HandleScope scope(isolate);
-
+  v8::HandleScope scope;
   v8::internal::byte buffer[2048];
   MacroAssembler masm(Isolate::Current(), buffer, sizeof buffer);
 
@@ -199,10 +190,10 @@ void check(uint32_t key) {
 
   CodeDesc desc;
   masm.GetCode(&desc);
-  Handle<Object> undefined(isolate->heap()->undefined_value(), isolate);
-  Handle<Code> code = factory->NewCode(desc,
-                                       Code::ComputeFlags(Code::STUB),
-                                       undefined);
+  Code* code = Code::cast(HEAP->CreateCode(
+      desc,
+      Code::ComputeFlags(Code::STUB),
+      Handle<Object>(HEAP->undefined_value()))->ToObjectChecked());
   CHECK(code->IsCode());
 
   HASH_FUNCTION hash = FUNCTION_CAST<HASH_FUNCTION>(code->entry());
@@ -213,14 +204,16 @@ void check(uint32_t key) {
   uint32_t codegen_hash = hash();
 #endif
 
-  uint32_t runtime_hash = ComputeIntegerHash(key, isolate->heap()->HashSeed());
+  uint32_t runtime_hash = ComputeIntegerHash(
+      key,
+      Isolate::Current()->heap()->HashSeed());
   CHECK(runtime_hash == codegen_hash);
 }
 
 
-void check_twochars(uint8_t a, uint8_t b) {
-  uint8_t ab[2] = {a, b};
-  check(i::Vector<const uint8_t>(ab, 2));
+void check_twochars(char a, char b) {
+  char ab[2] = {a, b};
+  check(i::Vector<const char>(ab, 2));
 }
 
 
@@ -230,16 +223,13 @@ static uint32_t PseudoRandom(uint32_t i, uint32_t j) {
 
 
 TEST(StringHash) {
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  v8::HandleScope handle_scope(isolate);
-  v8::Context::Scope context_scope(v8::Context::New(isolate));
-
-  for (uint8_t a = 0; a < String::kMaxOneByteCharCode; a++) {
+  if (env.IsEmpty()) env = v8::Context::New();
+  for (int a = 0; a < String::kMaxAsciiCharCode; a++) {
     // Numbers are hashed differently.
     if (a >= '0' && a <= '9') continue;
-    for (uint8_t b = 0; b < String::kMaxOneByteCharCode; b++) {
+    for (int b = 0; b < String::kMaxAsciiCharCode; b++) {
       if (b >= '0' && b <= '9') continue;
-      check_twochars(a, b);
+      check_twochars(static_cast<char>(a), static_cast<char>(b));
     }
   }
   check(i::Vector<const char>("*",       1));
@@ -251,9 +241,7 @@ TEST(StringHash) {
 
 
 TEST(NumberHash) {
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
-  v8::HandleScope handle_scope(isolate);
-  v8::Context::Scope context_scope(v8::Context::New(isolate));
+  if (env.IsEmpty()) env = v8::Context::New();
 
   // Some specific numbers
   for (uint32_t key = 0; key < 42; key += 7) {

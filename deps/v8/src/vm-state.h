@@ -34,10 +34,9 @@
 namespace v8 {
 namespace internal {
 
-template <StateTag Tag>
 class VMState BASE_EMBEDDED {
  public:
-  explicit inline VMState(Isolate* isolate);
+  inline VMState(Isolate* isolate, StateTag tag);
   inline ~VMState();
 
  private:
@@ -50,18 +49,9 @@ class ExternalCallbackScope BASE_EMBEDDED {
  public:
   inline ExternalCallbackScope(Isolate* isolate, Address callback);
   inline ~ExternalCallbackScope();
-  Address callback() { return callback_; }
-  Address* callback_address() { return &callback_; }
-  ExternalCallbackScope* previous() { return previous_scope_; }
-  inline Address scope_address();
-
  private:
   Isolate* isolate_;
-  Address callback_;
-  ExternalCallbackScope* previous_scope_;
-#ifdef USE_SIMULATOR
-  Address scope_address_;
-#endif
+  Address previous_callback_;
 };
 
 } }  // namespace v8::internal

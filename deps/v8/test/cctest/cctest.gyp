@@ -26,11 +26,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 {
+  'includes': ['../../build/common.gypi'],
   'variables': {
-    'v8_code': 1,
     'generated_file': '<(SHARED_INTERMEDIATE_DIR)/resources.cc',
   },
-  'includes': ['../../build/toolchain.gypi', '../../build/features.gypi'],
   'targets': [
     {
       'target_name': 'cctest',
@@ -60,7 +59,6 @@
         'test-dataflow.cc',
         'test-date.cc',
         'test-debug.cc',
-        'test-declarative-accessors.cc',
         'test-decls.cc',
         'test-deoptimization.cc',
         'test-dictionary.cc',
@@ -71,8 +69,6 @@
         'test-fixed-dtoa.cc',
         'test-flags.cc',
         'test-func-name-inference.cc',
-        'test-global-handles.cc',
-        'test-global-object.cc',
         'test-hashing.cc',
         'test-hashmap.cc',
         'test-heap.cc',
@@ -83,9 +79,7 @@
         'test-lockers.cc',
         'test-log.cc',
         'test-mark-compact.cc',
-        'test-object-observe.cc',
         'test-parsing.cc',
-        'test-platform.cc',
         'test-platform-tls.cc',
         'test-profile-generator.cc',
         'test-random.cc',
@@ -95,24 +89,18 @@
         'test-sockets.cc',
         'test-spaces.cc',
         'test-strings.cc',
-        'test-symbols.cc',
         'test-strtod.cc',
         'test-thread-termination.cc',
         'test-threads.cc',
-        'test-types.cc',
         'test-unbound-queue.cc',
         'test-utils.cc',
         'test-version.cc',
-        'test-weakmaps.cc',
-        'test-weaksets.cc',
-        'test-weaktypedarrays.cc'
+        'test-weakmaps.cc'
       ],
       'conditions': [
         ['v8_target_arch=="ia32"', {
           'sources': [
             'test-assembler-ia32.cc',
-            'test-code-stubs.cc',
-            'test-code-stubs-ia32.cc',
             'test-disasm-ia32.cc',
             'test-log-stack-tracer.cc'
           ],
@@ -120,8 +108,6 @@
         ['v8_target_arch=="x64"', {
           'sources': [
             'test-assembler-x64.cc',
-            'test-code-stubs.cc',
-            'test-code-stubs-x64.cc',
             'test-macro-assembler-x64.cc',
             'test-log-stack-tracer.cc'
           ],
@@ -167,9 +153,7 @@
               'dependencies': ['../../tools/gyp/v8.gyp:v8_snapshot'],
             },
             {
-              'dependencies': [
-                '../../tools/gyp/v8.gyp:v8_nosnapshot.<(v8_target_arch)',
-              ],
+              'dependencies': ['../../tools/gyp/v8.gyp:v8_nosnapshot'],
             }],
           ],
         }, {

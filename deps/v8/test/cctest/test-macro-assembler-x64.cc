@@ -157,9 +157,10 @@ TEST(SmiMove) {
                                                    &actual_size,
                                                    true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
   MacroAssembler* masm = &assembler;  // Create a pointer for the __ macro.
   masm->set_allow_stub_calls(false);
   EntryCode(masm);
@@ -246,9 +247,10 @@ TEST(SmiCompare) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -297,9 +299,10 @@ TEST(Integer32ToSmi) {
                                                  &actual_size,
                                                  true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -401,7 +404,7 @@ void TestI64PlusConstantToSmi(MacroAssembler* masm,
   ASSERT(Smi::IsValid(result));
   __ movl(rax, Immediate(id));
   __ Move(r8, Smi::FromInt(static_cast<int>(result)));
-  __ movq(rcx, x, RelocInfo::NONE64);
+  __ movq(rcx, x, RelocInfo::NONE);
   __ movq(r11, rcx);
   __ Integer64PlusConstantToSmi(rdx, rcx, y);
   __ cmpq(rdx, r8);
@@ -426,9 +429,10 @@ TEST(Integer64PlusConstantToSmi) {
                                                  &actual_size,
                                                  true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -471,9 +475,10 @@ TEST(SmiCheck) {
                                                    &actual_size,
                                                    true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -720,9 +725,10 @@ TEST(SmiNeg) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -801,7 +807,6 @@ static void SmiAddTest(MacroAssembler* masm,
   __ j(not_equal, exit);
 }
 
-
 TEST(SmiAdd) {
   v8::internal::V8::Initialize(NULL);
   // Allocate an executable page of memory.
@@ -810,9 +815,10 @@ TEST(SmiAdd) {
                                                  &actual_size,
                                                  true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1001,9 +1007,10 @@ TEST(SmiSub) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1092,9 +1099,10 @@ TEST(SmiMul) {
                                                  &actual_size,
                                                  true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1132,7 +1140,7 @@ TEST(SmiMul) {
 void TestSmiDiv(MacroAssembler* masm, Label* exit, int id, int x, int y) {
   bool division_by_zero = (y == 0);
   bool negative_zero = (x == 0 && y < 0);
-#if V8_TARGET_ARCH_X64
+#ifdef V8_TARGET_ARCH_X64
   bool overflow = (x == Smi::kMinValue && y < 0);  // Safe approx. used.
 #else
   bool overflow = (x == Smi::kMinValue && y == -1);
@@ -1199,9 +1207,10 @@ TEST(SmiDiv) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1310,9 +1319,10 @@ TEST(SmiMod) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1398,7 +1408,6 @@ void TestSmiIndex(MacroAssembler* masm, Label* exit, int id, int x) {
   }
 }
 
-
 TEST(SmiIndex) {
   v8::internal::V8::Initialize(NULL);
   // Allocate an executable page of memory.
@@ -1408,9 +1417,10 @@ TEST(SmiIndex) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1478,9 +1488,10 @@ TEST(SmiSelectNonSmi) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);  // Avoid inline checks.
@@ -1558,9 +1569,10 @@ TEST(SmiAnd) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1640,9 +1652,10 @@ TEST(SmiOr) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1724,9 +1737,10 @@ TEST(SmiXor) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1792,9 +1806,10 @@ TEST(SmiNot) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1889,9 +1904,10 @@ TEST(SmiShiftLeft) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -1996,9 +2012,10 @@ TEST(SmiShiftLogicalRight) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -2066,9 +2083,10 @@ TEST(SmiShiftArithmeticRight) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -2131,9 +2149,10 @@ TEST(PositiveSmiTimesPowerOfTwoToInteger64) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -2175,9 +2194,10 @@ TEST(OperandOffset) {
                                       &actual_size,
                                       true));
   CHECK(buffer);
-  Isolate* isolate = Isolate::Current();
-  HandleScope handles(isolate);
-  MacroAssembler assembler(isolate, buffer, static_cast<int>(actual_size));
+  HandleScope handles;
+  MacroAssembler assembler(Isolate::Current(),
+                           buffer,
+                           static_cast<int>(actual_size));
 
   MacroAssembler* masm = &assembler;
   masm->set_allow_stub_calls(false);
@@ -2207,7 +2227,7 @@ TEST(OperandOffset) {
   __ lea(r13, Operand(rbp, -3 * kPointerSize));
   __ lea(rbx, Operand(rbp, -5 * kPointerSize));
   __ movl(rcx, Immediate(2));
-  __ movq(r8, reinterpret_cast<uintptr_t>(&data[128]), RelocInfo::NONE64);
+  __ movq(r8, reinterpret_cast<uintptr_t>(&data[128]), RelocInfo::NONE);
   __ movl(rax, Immediate(1));
 
   Operand sp0 = Operand(rsp, 0);

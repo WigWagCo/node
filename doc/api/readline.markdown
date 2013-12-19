@@ -86,7 +86,7 @@ a `"resize"` event on the `output` if/when the columns ever change
 The class that represents a readline interface with an input and output
 stream.
 
-### rl.setPrompt(prompt)
+### rl.setPrompt(prompt, length)
 
 Sets the prompt, for example when you run `node` on the command line, you see
 `> `, which is node's prompt.

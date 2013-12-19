@@ -221,7 +221,7 @@ class CompleteParserRecorder: public FunctionLoggingParserRecorder {
   Collector<byte> literal_chars_;
   Collector<byte> symbol_store_;
   Collector<Key> symbol_keys_;
-  HashMap string_table_;
+  HashMap symbol_table_;
   int symbol_id_;
 };
 

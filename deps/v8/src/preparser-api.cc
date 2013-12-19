@@ -100,9 +100,9 @@ class InputStreamUtf16Buffer : public Utf16CharacterStream {
         // Hit the bottom of the allocated pushback buffer.
         // Double the buffer and continue.
         uc16* new_buffer = NewArray<uc16>(pushback_buffer_backing_size_ * 2);
-        OS::MemCopy(new_buffer + pushback_buffer_backing_size_,
-                    pushback_buffer_backing_,
-                    pushback_buffer_backing_size_);
+        memcpy(new_buffer + pushback_buffer_backing_size_,
+               pushback_buffer_backing_,
+               pushback_buffer_backing_size_);
         DeleteArray(pushback_buffer_backing_);
         buffer_cursor_ = new_buffer + pushback_buffer_backing_size_;
         pushback_buffer_backing_ = pushback_buffer_ = new_buffer;
@@ -168,6 +168,16 @@ class InputStreamUtf16Buffer : public Utf16CharacterStream {
   unsigned pushback_buffer_backing_size_;
 };
 
+
+// Functions declared by allocation.h and implemented in both api.cc (for v8)
+// or here (for a stand-alone preparser).
+
+void FatalProcessOutOfMemory(const char* reason) {
+  V8_Fatal(__FILE__, __LINE__, reason);
+}
+
+bool EnableSlowAsserts() { return true; }
+
 }  // namespace internal.
 
 
@@ -181,9 +191,11 @@ PreParserData Preparse(UnicodeInputStream* input, size_t max_stack) {
   internal::Scanner scanner(&unicode_cache);
   scanner.Initialize(&buffer);
   internal::CompleteParserRecorder recorder;
-  preparser::PreParser preparser(&scanner, &recorder, stack_limit);
-  preparser.set_allow_lazy(true);
-  preparser::PreParser::PreParseResult result = preparser.PreParseProgram();
+  preparser::PreParser::PreParseResult result =
+      preparser::PreParser::PreParseProgram(&scanner,
+                                            &recorder,
+                                            internal::kAllowLazy,
+                                            stack_limit);
   if (result == preparser::PreParser::kPreParseStackOverflow) {
     return PreParserData::StackOverflow();
   }
@@ -194,3 +206,9 @@ PreParserData Preparse(UnicodeInputStream* input, size_t max_stack) {
 }
 
 }  // namespace v8.
+
+
+// Used by ASSERT macros and other immediate exits.
+extern "C" void V8_Fatal(const char* file, int line, const char* format, ...) {
+  exit(EXIT_FAILURE);
+}

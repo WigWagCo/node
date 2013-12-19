@@ -99,7 +99,6 @@ namespace internal {
   T(SHL, "<<", 11)                                                      \
   T(SAR, ">>", 11)                                                      \
   T(SHR, ">>>", 11)                                                     \
-  T(ROR, "rotate right", 11)   /* only used by Crankshaft */            \
   T(ADD, "+", 12)                                                       \
   T(SUB, "-", 12)                                                       \
   T(MUL, "*", 13)                                                       \
@@ -174,7 +173,6 @@ namespace internal {
   K(EXPORT, "export", 0)                                                \
   K(IMPORT, "import", 0)                                                \
   K(LET, "let", 0)                                                      \
-  K(YIELD, "yield", 0)                                                  \
                                                                         \
   /* Illegal token - not able to scan. */                               \
   T(ILLEGAL, "ILLEGAL", 0)                                              \
@@ -225,45 +223,32 @@ class Token {
     return op == EQ || op == EQ_STRICT;
   }
 
-  static bool IsInequalityOp(Value op) {
-    return op == NE || op == NE_STRICT;
-  }
-
-  static bool IsArithmeticCompareOp(Value op) {
-    return IsOrderedRelationalCompareOp(op) ||
-        IsEqualityOp(op) || IsInequalityOp(op);
-  }
-
   static Value NegateCompareOp(Value op) {
-    ASSERT(IsArithmeticCompareOp(op));
+    ASSERT(IsCompareOp(op));
     switch (op) {
       case EQ: return NE;
       case NE: return EQ;
       case EQ_STRICT: return NE_STRICT;
-      case NE_STRICT: return EQ_STRICT;
       case LT: return GTE;
       case GT: return LTE;
       case LTE: return GT;
       case GTE: return LT;
       default:
-        UNREACHABLE();
         return op;
     }
   }
 
-  static Value ReverseCompareOp(Value op) {
-    ASSERT(IsArithmeticCompareOp(op));
+  static Value InvertCompareOp(Value op) {
+    ASSERT(IsCompareOp(op));
     switch (op) {
-      case EQ: return EQ;
-      case NE: return NE;
-      case EQ_STRICT: return EQ_STRICT;
-      case NE_STRICT: return NE_STRICT;
+      case EQ: return NE;
+      case NE: return EQ;
+      case EQ_STRICT: return NE_STRICT;
       case LT: return GT;
       case GT: return LT;
       case LTE: return GTE;
       case GTE: return LTE;
       default:
-        UNREACHABLE();
         return op;
     }
   }

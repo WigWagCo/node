@@ -53,7 +53,6 @@
 #include "v8globals.h"
 #include "v8checks.h"
 #include "allocation.h"
-#include "assert-scope.h"
 #include "v8utils.h"
 #include "flags.h"
 
@@ -64,6 +63,7 @@
 #include "incremental-marking-inl.h"
 #include "mark-compact-inl.h"
 #include "log-inl.h"
+#include "cpu-profiler-inl.h"
 #include "handles-inl.h"
 #include "zone-inl.h"
 
@@ -99,8 +99,6 @@ class V8 : public AllStatic {
   // Support for return-address rewriting profilers.
   static void SetReturnAddressLocationResolver(
       ReturnAddressLocationResolver resolver);
-  // Support for entry hooking JITed code.
-  static void SetFunctionEntryHook(FunctionEntryHook entry_hook);
   // Random number generation support. Not cryptographically safe.
   static uint32_t Random(Context* context);
   // We use random numbers internally in memory allocation and in the
@@ -117,15 +115,6 @@ class V8 : public AllStatic {
   static void AddCallCompletedCallback(CallCompletedCallback callback);
   static void RemoveCallCompletedCallback(CallCompletedCallback callback);
   static void FireCallCompletedCallback(Isolate* isolate);
-
-  static v8::ArrayBuffer::Allocator* ArrayBufferAllocator() {
-    return array_buffer_allocator_;
-  }
-
-  static void SetArrayBufferAllocator(v8::ArrayBuffer::Allocator *allocator) {
-    CHECK_EQ(NULL, array_buffer_allocator_);
-    array_buffer_allocator_ = allocator;
-  }
 
  private:
   static void InitializeOncePerProcessImpl();
@@ -145,13 +134,15 @@ class V8 : public AllStatic {
   static bool use_crankshaft_;
   // List of callbacks when a Call completes.
   static List<CallCompletedCallback>* call_completed_callbacks_;
-  // Allocator for external array buffers.
-  static v8::ArrayBuffer::Allocator* array_buffer_allocator_;
 };
 
 
 // JavaScript defines two kinds of 'nil'.
 enum NilValue { kNullValue, kUndefinedValue };
+
+
+// JavaScript defines two kinds of equality.
+enum EqualityKind { kStrictEquality, kNonStrictEquality };
 
 
 } }  // namespace v8::internal

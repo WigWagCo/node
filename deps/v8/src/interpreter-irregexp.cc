@@ -68,20 +68,14 @@ static bool BackRefMatchesNoCase(Canonicalize* interp_canonicalize,
                                  int from,
                                  int current,
                                  int len,
-                                 Vector<const uint8_t> subject) {
+                                 Vector<const char> subject) {
   for (int i = 0; i < len; i++) {
     unsigned int old_char = subject[from++];
     unsigned int new_char = subject[current++];
     if (old_char == new_char) continue;
-    // Convert both characters to lower case.
-    old_char |= 0x20;
-    new_char |= 0x20;
+    if (old_char - 'A' <= 'Z' - 'A') old_char |= 0x20;
+    if (new_char - 'A' <= 'Z' - 'A') new_char |= 0x20;
     if (old_char != new_char) return false;
-    // Not letters in the ASCII range and Latin-1 range.
-    if (!(old_char - 'a' <= 'z' - 'a') &&
-        !(old_char - 224 <= 254 - 224 && old_char != 247)) {
-      return false;
-    }
   }
   return true;
 }
@@ -618,12 +612,12 @@ RegExpImpl::IrregexpResult IrregexpInterpreter::Match(
     int start_position) {
   ASSERT(subject->IsFlat());
 
-  DisallowHeapAllocation no_gc;
+  AssertNoAllocation a;
   const byte* code_base = code_array->GetDataStartAddress();
   uc16 previous_char = '\n';
   String::FlatContent subject_content = subject->GetFlatContent();
   if (subject_content.IsAscii()) {
-    Vector<const uint8_t> subject_vector = subject_content.ToOneByteVector();
+    Vector<const char> subject_vector = subject_content.ToAsciiVector();
     if (start_position != 0) previous_char = subject_vector[start_position - 1];
     return RawMatch(isolate,
                     code_base,

@@ -29,8 +29,7 @@
 #define V8_VM_STATE_INL_H_
 
 #include "vm-state.h"
-#include "log.h"
-#include "simulator.h"
+#include "runtime-profiler.h"
 
 namespace v8 {
 namespace internal {
@@ -48,6 +47,8 @@ inline const char* StateToString(StateTag state) {
       return "GC";
     case COMPILER:
       return "COMPILER";
+    case PARALLEL_COMPILER_PROLOGUE:
+      return "PARALLEL_COMPILER_PROLOGUE";
     case OTHER:
       return "OTHER";
     case EXTERNAL:
@@ -59,48 +60,37 @@ inline const char* StateToString(StateTag state) {
 }
 
 
-template <StateTag Tag>
-VMState<Tag>::VMState(Isolate* isolate)
+VMState::VMState(Isolate* isolate, StateTag tag)
     : isolate_(isolate), previous_tag_(isolate->current_vm_state()) {
-  if (FLAG_log_timer_events && previous_tag_ != EXTERNAL && Tag == EXTERNAL) {
-    LOG(isolate_,
-        TimerEvent(Logger::START, Logger::TimerEventScope::v8_external));
+  if (FLAG_log_state_changes) {
+    LOG(isolate, UncheckedStringEvent("Entering", StateToString(tag)));
+    LOG(isolate, UncheckedStringEvent("From", StateToString(previous_tag_)));
   }
-  isolate_->set_current_vm_state(Tag);
+
+  isolate_->SetCurrentVMState(tag);
 }
 
 
-template <StateTag Tag>
-VMState<Tag>::~VMState() {
-  if (FLAG_log_timer_events && previous_tag_ != EXTERNAL && Tag == EXTERNAL) {
+VMState::~VMState() {
+  if (FLAG_log_state_changes) {
     LOG(isolate_,
-        TimerEvent(Logger::END, Logger::TimerEventScope::v8_external));
+        UncheckedStringEvent("Leaving",
+                              StateToString(isolate_->current_vm_state())));
+    LOG(isolate_,
+        UncheckedStringEvent("To", StateToString(previous_tag_)));
   }
-  isolate_->set_current_vm_state(previous_tag_);
+
+  isolate_->SetCurrentVMState(previous_tag_);
 }
 
 
 ExternalCallbackScope::ExternalCallbackScope(Isolate* isolate, Address callback)
-    : isolate_(isolate),
-      callback_(callback),
-      previous_scope_(isolate->external_callback_scope()) {
-#ifdef USE_SIMULATOR
-  int32_t sp = Simulator::current(isolate)->get_register(Simulator::sp);
-  scope_address_ = reinterpret_cast<Address>(static_cast<intptr_t>(sp));
-#endif
-  isolate_->set_external_callback_scope(this);
+    : isolate_(isolate), previous_callback_(isolate->external_callback()) {
+  isolate_->set_external_callback(callback);
 }
 
 ExternalCallbackScope::~ExternalCallbackScope() {
-  isolate_->set_external_callback_scope(previous_scope_);
-}
-
-Address ExternalCallbackScope::scope_address() {
-#ifdef USE_SIMULATOR
-  return scope_address_;
-#else
-  return reinterpret_cast<Address>(this);
-#endif
+  isolate_->set_external_callback(previous_callback_);
 }
 
 

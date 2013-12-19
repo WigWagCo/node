@@ -219,6 +219,7 @@ void LGapResolver::EmitMove(int index) {
       ASSERT(destination->IsStackSlot());
       __ str(source_register, cgen_->ToMemOperand(destination));
     }
+
   } else if (source->IsStackSlot()) {
     MemOperand source_operand = cgen_->ToMemOperand(source);
     if (destination->IsRegister()) {
@@ -247,25 +248,17 @@ void LGapResolver::EmitMove(int index) {
     LConstantOperand* constant_source = LConstantOperand::cast(source);
     if (destination->IsRegister()) {
       Register dst = cgen_->ToRegister(destination);
-      Representation r = cgen_->IsSmi(constant_source)
-          ? Representation::Smi() : Representation::Integer32();
       if (cgen_->IsInteger32(constant_source)) {
-        __ mov(dst, Operand(cgen_->ToRepresentation(constant_source, r)));
+        __ mov(dst, Operand(cgen_->ToInteger32(constant_source)));
       } else {
         __ LoadObject(dst, cgen_->ToHandle(constant_source));
       }
-    } else if (destination->IsDoubleRegister()) {
-      DwVfpRegister result = cgen_->ToDoubleRegister(destination);
-      double v = cgen_->ToDouble(constant_source);
-      __ Vmov(result, v, ip);
     } else {
       ASSERT(destination->IsStackSlot());
       ASSERT(!in_cycle_);  // Constant moves happen after all cycles are gone.
-      Representation r = cgen_->IsSmi(constant_source)
-          ? Representation::Smi() : Representation::Integer32();
       if (cgen_->IsInteger32(constant_source)) {
         __ mov(kSavedValueRegister,
-               Operand(cgen_->ToRepresentation(constant_source, r)));
+               Operand(cgen_->ToInteger32(constant_source)));
       } else {
         __ LoadObject(kSavedValueRegister,
                       cgen_->ToHandle(constant_source));
@@ -274,7 +267,7 @@ void LGapResolver::EmitMove(int index) {
     }
 
   } else if (source->IsDoubleRegister()) {
-    DwVfpRegister source_register = cgen_->ToDoubleRegister(source);
+    DoubleRegister source_register = cgen_->ToDoubleRegister(source);
     if (destination->IsDoubleRegister()) {
       __ vmov(cgen_->ToDoubleRegister(destination), source_register);
     } else {

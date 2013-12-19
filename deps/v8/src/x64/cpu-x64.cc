@@ -33,7 +33,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_X64
+#if defined(V8_TARGET_ARCH_X64)
 
 #include "cpu.h"
 #include "macro-assembler.h"

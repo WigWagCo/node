@@ -34,9 +34,6 @@
 #include "smart-pointers.h"
 #include "string-stream.h"
 
-#if V8_TARGET_ARCH_ARM
-#include "arm/assembler-arm-inl.h"
-#endif
 
 namespace v8 {
 namespace internal {
@@ -308,7 +305,7 @@ static void SplitArgument(const char* arg,
       // make a copy so we can NUL-terminate flag name
       size_t n = arg - *name;
       CHECK(n < static_cast<size_t>(buffer_size));  // buffer is too small
-      OS::MemCopy(buffer, *name, n);
+      memcpy(buffer, *name, n);
       buffer[n] = '\0';
       *name = buffer;
       // get the value
@@ -370,8 +367,8 @@ int FlagList::SetFlagsFromCommandLine(int* argc,
           // sense there.
           continue;
         } else {
-          PrintF(stderr, "Error: unrecognized flag %s\n"
-                 "Try --help for options\n", arg);
+          fprintf(stderr, "Error: unrecognized flag %s\n"
+                  "Try --help for options\n", arg);
           return_code = j;
           break;
         }
@@ -384,9 +381,9 @@ int FlagList::SetFlagsFromCommandLine(int* argc,
         if (i < *argc) {
           value = argv[i++];
         } else {
-          PrintF(stderr, "Error: missing value for flag %s of type %s\n"
-                 "Try --help for options\n",
-                 arg, Type2String(flag->type()));
+          fprintf(stderr, "Error: missing value for flag %s of type %s\n"
+                  "Try --help for options\n",
+                  arg, Type2String(flag->type()));
           return_code = j;
           break;
         }
@@ -427,9 +424,9 @@ int FlagList::SetFlagsFromCommandLine(int* argc,
       if ((flag->type() == Flag::TYPE_BOOL && value != NULL) ||
           (flag->type() != Flag::TYPE_BOOL && is_bool) ||
           *endp != '\0') {
-        PrintF(stderr, "Error: illegal value for flag %s of type %s\n"
-               "Try --help for options\n",
-               arg, Type2String(flag->type()));
+        fprintf(stderr, "Error: illegal value for flag %s of type %s\n"
+                "Try --help for options\n",
+                arg, Type2String(flag->type()));
         return_code = j;
         break;
       }
@@ -478,7 +475,7 @@ static char* SkipBlackSpace(char* p) {
 int FlagList::SetFlagsFromString(const char* str, int len) {
   // make a 0-terminated copy of str
   ScopedVector<char> copy0(len + 1);
-  OS::MemCopy(copy0.start(), str, len);
+  memcpy(copy0.start(), str, len);
   copy0[len] = '\0';
 
   // strip leading white space
@@ -520,12 +517,6 @@ void FlagList::ResetAllFlags() {
 
 // static
 void FlagList::PrintHelp() {
-#if V8_TARGET_ARCH_ARM
-  CpuFeatures::PrintTarget();
-  CpuFeatures::Probe();
-  CpuFeatures::PrintFeatures();
-#endif  // V8_TARGET_ARCH_ARM
-
   printf("Usage:\n");
   printf("  shell [options] -e string\n");
   printf("    execute string in V8\n");
@@ -551,7 +542,6 @@ void FlagList::PrintHelp() {
 void FlagList::EnforceFlagImplications() {
 #define FLAG_MODE_DEFINE_IMPLICATIONS
 #include "flag-definitions.h"
-#undef FLAG_MODE_DEFINE_IMPLICATIONS
 }
 
 } }  // namespace v8::internal

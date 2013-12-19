@@ -79,14 +79,6 @@ enum BreakLocatorType {
 };
 
 
-// The different types of breakpoint position alignments.
-// Must match Debug.BreakPositionAlignment in debug-debugger.js
-enum BreakPositionAlignment {
-  STATEMENT_ALIGNED = 0,
-  BREAK_POSITION_ALIGNED = 1
-};
-
-
 // Class for iterating through the break points in a function and changing
 // them.
 class BreakLocationIterator {
@@ -98,16 +90,14 @@ class BreakLocationIterator {
   void Next();
   void Next(int count);
   void FindBreakLocationFromAddress(Address pc);
-  void FindBreakLocationFromPosition(int position,
-      BreakPositionAlignment alignment);
+  void FindBreakLocationFromPosition(int position);
   void Reset();
   bool Done() const;
   void SetBreakPoint(Handle<Object> break_point_object);
   void ClearBreakPoint(Handle<Object> break_point_object);
   void SetOneShot();
   void ClearOneShot();
-  bool IsStepInLocation(Isolate* isolate);
-  void PrepareStepIn(Isolate* isolate);
+  void PrepareStepIn();
   bool IsExit() const;
   bool HasBreakPoint();
   bool IsDebugBreak();
@@ -199,9 +189,7 @@ class ScriptCache : private HashMap {
   void Clear();
 
   // Weak handle callback for scripts in the cache.
-  static void HandleWeakScript(v8::Isolate* isolate,
-                               v8::Persistent<v8::Value>* obj,
-                               void* data);
+  static void HandleWeakScript(v8::Persistent<v8::Value> obj, void* data);
 
   // List used during GC to temporarily store id's of collected scripts.
   List<int> collected_scripts_;
@@ -250,8 +238,7 @@ class Debug {
                      int* source_position);
   bool SetBreakPointForScript(Handle<Script> script,
                               Handle<Object> break_point_object,
-                              int* source_position,
-                              BreakPositionAlignment alignment);
+                              int* source_position);
   void ClearBreakPoint(Handle<Object> break_point_object);
   void ClearAllBreakPoints();
   void FloodWithOneShot(Handle<JSFunction> function);
@@ -294,8 +281,7 @@ class Debug {
   static Handle<Code> FindDebugBreak(Handle<Code> code, RelocInfo::Mode mode);
 
   static Handle<Object> GetSourceBreakLocations(
-      Handle<SharedFunctionInfo> shared,
-      BreakPositionAlignment position_aligment);
+      Handle<SharedFunctionInfo> shared);
 
   // Getter for the debug_context.
   inline Handle<Context> debug_context() { return debug_context_; }
@@ -398,9 +384,7 @@ class Debug {
   static const int kEstimatedNofBreakPointsInFunction = 16;
 
   // Passed to MakeWeak.
-  static void HandleWeakDebugInfo(v8::Isolate* isolate,
-                                  v8::Persistent<v8::Value>* obj,
-                                  void* data);
+  static void HandleWeakDebugInfo(v8::Persistent<v8::Value> obj, void* data);
 
   friend class Debugger;
   friend Handle<FixedArray> GetDebuggedFunctions();  // In test-debug.cc
@@ -430,7 +414,6 @@ class Debug {
   static void GenerateStoreICDebugBreak(MacroAssembler* masm);
   static void GenerateKeyedLoadICDebugBreak(MacroAssembler* masm);
   static void GenerateKeyedStoreICDebugBreak(MacroAssembler* masm);
-  static void GenerateCompareNilICDebugBreak(MacroAssembler* masm);
   static void GenerateReturnDebugBreak(MacroAssembler* masm);
   static void GenerateCallFunctionStubDebugBreak(MacroAssembler* masm);
   static void GenerateCallFunctionStubRecordDebugBreak(MacroAssembler* masm);
@@ -892,9 +875,7 @@ class Debugger {
   void set_loading_debugger(bool v) { is_loading_debugger_ = v; }
   bool is_loading_debugger() const { return is_loading_debugger_; }
   void set_live_edit_enabled(bool v) { live_edit_enabled_ = v; }
-  bool live_edit_enabled() const {
-    return FLAG_enable_liveedit && live_edit_enabled_ ;
-  }
+  bool live_edit_enabled() const { return live_edit_enabled_; }
   void set_force_debugger_active(bool force_debugger_active) {
     force_debugger_active_ = force_debugger_active;
   }
@@ -1054,7 +1035,6 @@ class MessageDispatchHelperThread: public Thread {
  private:
   void Run();
 
-  Isolate* isolate_;
   Semaphore* const sem_;
   Mutex* const mutex_;
   bool already_signalled_;

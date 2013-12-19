@@ -102,7 +102,8 @@ TEST_IMPL(timer_again) {
   r = uv_timer_init(uv_default_loop(), &dummy);
   ASSERT(r == 0);
   r = uv_timer_again(&dummy);
-  ASSERT(r == UV_EINVAL);
+  ASSERT(r == -1);
+  ASSERT(uv_last_error(uv_default_loop()).code == UV_EINVAL);
   uv_unref((uv_handle_t*)&dummy);
 
   /* Start timer repeat_1. */

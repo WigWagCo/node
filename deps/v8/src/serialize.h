@@ -47,11 +47,10 @@ enum TypeCode {
   EXTENSION,
   ACCESSOR,
   RUNTIME_ENTRY,
-  STUB_CACHE_TABLE,
-  LAZY_DEOPTIMIZATION
+  STUB_CACHE_TABLE
 };
 
-const int kTypeCodeCount = LAZY_DEOPTIMIZATION + 1;
+const int kTypeCodeCount = STUB_CACHE_TABLE + 1;
 const int kFirstTypeCode = UNCLASSIFIED;
 
 const int kReferenceIdBits = 16;
@@ -60,7 +59,6 @@ const int kReferenceTypeShift = kReferenceIdBits;
 const int kDebugRegisterBits = 4;
 const int kDebugIdShift = kDebugRegisterBits;
 
-const int kDeoptTableSerializeEntryCount = 8;
 
 // ExternalReferenceTable is a helper class that defines the relationship
 // between external references and their encodings. It is used to build
@@ -311,7 +309,7 @@ int SnapshotByteSource::GetInt() {
 
 
 void SnapshotByteSource::CopyRaw(byte* to, int number_of_bytes) {
-  OS::MemCopy(to, data_ + position_, number_of_bytes);
+  memcpy(to, data_ + position_, number_of_bytes);
   position_ += number_of_bytes;
 }
 
@@ -346,10 +344,6 @@ class Deserializer: public SerializerDeserializer {
   virtual void VisitRuntimeEntry(RelocInfo* rinfo) {
     UNREACHABLE();
   }
-
-  // Allocation sites are present in the snapshot, and must be linked into
-  // a list at deserialization time.
-  void RelinkAllocationSite(AllocationSite* site);
 
   // Fills in some heap data in an area from start to end (non-inclusive).  The
   // space id is used for the write barrier.  The object_address is the address
@@ -412,11 +406,12 @@ class SnapshotByteSink {
 class SerializationAddressMapper {
  public:
   SerializationAddressMapper()
-      : no_allocation_(),
-        serialization_map_(new HashMap(&SerializationMatchFun)) { }
+      : serialization_map_(new HashMap(&SerializationMatchFun)),
+        no_allocation_(new AssertNoAllocation()) { }
 
   ~SerializationAddressMapper() {
     delete serialization_map_;
+    delete no_allocation_;
   }
 
   bool IsMapped(HeapObject* obj) {
@@ -453,13 +448,11 @@ class SerializationAddressMapper {
     return reinterpret_cast<void*>(v);
   }
 
-  DisallowHeapAllocation no_allocation_;
   HashMap* serialization_map_;
+  AssertNoAllocation* no_allocation_;
   DISALLOW_COPY_AND_ASSIGN(SerializationAddressMapper);
 };
 
-
-class CodeAddressMap;
 
 // There can be only one serializer per V8 process.
 class Serializer : public SerializerDeserializer {
@@ -474,9 +467,14 @@ class Serializer : public SerializerDeserializer {
     return fullness_[space];
   }
 
-  static void Enable();
-  static void Disable();
+  static void Enable() {
+    if (!serialization_enabled_) {
+      ASSERT(!too_late_to_enable_now_);
+    }
+    serialization_enabled_ = true;
+  }
 
+  static void Disable() { serialization_enabled_ = false; }
   // Call this when you have made use of the fact that there is no serialization
   // going on.
   static void TooLateToEnableNow() { too_late_to_enable_now_ = true; }
@@ -520,7 +518,7 @@ class Serializer : public SerializerDeserializer {
     void VisitExternalReference(RelocInfo* rinfo);
     void VisitCodeTarget(RelocInfo* target);
     void VisitCodeEntry(Address entry_address);
-    void VisitCell(RelocInfo* rinfo);
+    void VisitGlobalPropertyCell(RelocInfo* rinfo);
     void VisitRuntimeEntry(RelocInfo* reloc);
     // Used for seralizing the external strings that hold the natives source.
     void VisitExternalAsciiString(
@@ -586,7 +584,6 @@ class Serializer : public SerializerDeserializer {
   friend class Deserializer;
 
  private:
-  static CodeAddressMap* code_address_map_;
   DISALLOW_COPY_AND_ASSIGN(Serializer);
 };
 
@@ -615,7 +612,7 @@ class PartialSerializer : public Serializer {
     // unique ID, and deserializing several partial snapshots containing script
     // would cause dupes.
     ASSERT(!o->IsScript());
-    return o->IsName() || o->IsSharedFunctionInfo() ||
+    return o->IsString() || o->IsSharedFunctionInfo() ||
            o->IsHeapNumber() || o->IsCode() ||
            o->IsScopeInfo() ||
            o->map() == HEAP->fixed_cow_array_map();
@@ -639,7 +636,7 @@ class StartupSerializer : public Serializer {
   // Serialize the current state of the heap.  The order is:
   // 1) Strong references.
   // 2) Partial snapshot cache.
-  // 3) Weak references (e.g. the string table).
+  // 3) Weak references (e.g. the symbol table).
   virtual void SerializeStrongReferences();
   virtual void SerializeObject(Object* o,
                                HowToCode how_to_code,

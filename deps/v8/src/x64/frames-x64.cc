@@ -27,23 +27,17 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_X64
+#if defined(V8_TARGET_ARCH_X64)
 
-#include "assembler.h"
-#include "assembler-x64.h"
-#include "assembler-x64-inl.h"
-#include "frames.h"
+#include "frames-inl.h"
 
 namespace v8 {
 namespace internal {
 
 
-Register JavaScriptFrame::fp_register() { return rbp; }
-Register JavaScriptFrame::context_register() { return rsi; }
-
-
-Register StubFailureTrampolineFrame::fp_register() { return rbp; }
-Register StubFailureTrampolineFrame::context_register() { return rsi; }
+Address ExitFrame::ComputeStackPointer(Address fp) {
+  return Memory::Address_at(fp + ExitFrameConstants::kSPOffset);
+}
 
 
 } }  // namespace v8::internal

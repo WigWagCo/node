@@ -47,7 +47,7 @@ namespace internal {
 class StaticVisitorBase : public AllStatic {
  public:
 #define VISITOR_ID_LIST(V)    \
-  V(SeqOneByteString)           \
+  V(SeqAsciiString)           \
   V(SeqTwoByteString)         \
   V(ShortcutCandidate)        \
   V(ByteArray)                \
@@ -55,7 +55,6 @@ class StaticVisitorBase : public AllStatic {
   V(FixedArray)               \
   V(FixedDoubleArray)         \
   V(NativeContext)            \
-  V(AllocationSite)           \
   V(DataObject2)              \
   V(DataObject3)              \
   V(DataObject4)              \
@@ -85,19 +84,13 @@ class StaticVisitorBase : public AllStatic {
   V(StructGeneric)            \
   V(ConsString)               \
   V(SlicedString)             \
-  V(Symbol)                   \
   V(Oddball)                  \
   V(Code)                     \
   V(Map)                      \
-  V(Cell)                     \
   V(PropertyCell)             \
   V(SharedFunctionInfo)       \
   V(JSFunction)               \
   V(JSWeakMap)                \
-  V(JSWeakSet)                \
-  V(JSArrayBuffer)            \
-  V(JSTypedArray)             \
-  V(JSDataView)               \
   V(JSRegExp)
 
   // For data objects, JS objects and structs along with generic visitor which
@@ -141,7 +134,7 @@ class StaticVisitorBase : public AllStatic {
            (base == kVisitJSObject));
     ASSERT(IsAligned(object_size, kPointerSize));
     ASSERT(kMinObjectSizeInWords * kPointerSize <= object_size);
-    ASSERT(object_size <= Page::kMaxNonCodeHeapObjectSize);
+    ASSERT(object_size < Page::kMaxNonCodeHeapObjectSize);
 
     const VisitorId specialization = static_cast<VisitorId>(
         base + (object_size >> kPointerSizeLog2) - kMinObjectSizeInWords);
@@ -228,7 +221,7 @@ class BodyVisitorBase : public AllStatic {
 template<typename StaticVisitor, typename BodyDescriptor, typename ReturnType>
 class FlexibleBodyVisitor : public BodyVisitorBase<StaticVisitor> {
  public:
-  INLINE(static ReturnType Visit(Map* map, HeapObject* object)) {
+  static inline ReturnType Visit(Map* map, HeapObject* object) {
     int object_size = BodyDescriptor::SizeOf(map, object);
     BodyVisitorBase<StaticVisitor>::IteratePointers(
         map->GetHeap(),
@@ -254,7 +247,7 @@ class FlexibleBodyVisitor : public BodyVisitorBase<StaticVisitor> {
 template<typename StaticVisitor, typename BodyDescriptor, typename ReturnType>
 class FixedBodyVisitor : public BodyVisitorBase<StaticVisitor> {
  public:
-  INLINE(static ReturnType Visit(Map* map, HeapObject* object)) {
+  static inline ReturnType Visit(Map* map, HeapObject* object) {
     BodyVisitorBase<StaticVisitor>::IteratePointers(
         map->GetHeap(),
         object,
@@ -286,16 +279,16 @@ class StaticNewSpaceVisitor : public StaticVisitorBase {
  public:
   static void Initialize();
 
-  INLINE(static int IterateBody(Map* map, HeapObject* obj)) {
+  static inline int IterateBody(Map* map, HeapObject* obj) {
     return table_.GetVisitor(map)(map, obj);
   }
 
-  INLINE(static void VisitPointers(Heap* heap, Object** start, Object** end)) {
+  static inline void VisitPointers(Heap* heap, Object** start, Object** end) {
     for (Object** p = start; p < end; p++) StaticVisitor::VisitPointer(heap, p);
   }
 
  private:
-  INLINE(static int VisitJSFunction(Map* map, HeapObject* object)) {
+  static inline int VisitJSFunction(Map* map, HeapObject* object) {
     Heap* heap = map->GetHeap();
     VisitPointers(heap,
                   HeapObject::RawField(object, JSFunction::kPropertiesOffset),
@@ -312,36 +305,32 @@ class StaticNewSpaceVisitor : public StaticVisitorBase {
     return JSFunction::kSize;
   }
 
-  INLINE(static int VisitByteArray(Map* map, HeapObject* object)) {
+  static inline int VisitByteArray(Map* map, HeapObject* object) {
     return reinterpret_cast<ByteArray*>(object)->ByteArraySize();
   }
 
-  INLINE(static int VisitFixedDoubleArray(Map* map, HeapObject* object)) {
+  static inline int VisitFixedDoubleArray(Map* map, HeapObject* object) {
     int length = reinterpret_cast<FixedDoubleArray*>(object)->length();
     return FixedDoubleArray::SizeFor(length);
   }
 
-  INLINE(static int VisitJSObject(Map* map, HeapObject* object)) {
+  static inline int VisitJSObject(Map* map, HeapObject* object) {
     return JSObjectVisitor::Visit(map, object);
   }
 
-  INLINE(static int VisitSeqOneByteString(Map* map, HeapObject* object)) {
-    return SeqOneByteString::cast(object)->
-        SeqOneByteStringSize(map->instance_type());
+  static inline int VisitSeqAsciiString(Map* map, HeapObject* object) {
+    return SeqAsciiString::cast(object)->
+        SeqAsciiStringSize(map->instance_type());
   }
 
-  INLINE(static int VisitSeqTwoByteString(Map* map, HeapObject* object)) {
+  static inline int VisitSeqTwoByteString(Map* map, HeapObject* object) {
     return SeqTwoByteString::cast(object)->
         SeqTwoByteStringSize(map->instance_type());
   }
 
-  INLINE(static int VisitFreeSpace(Map* map, HeapObject* object)) {
+  static inline int VisitFreeSpace(Map* map, HeapObject* object) {
     return FreeSpace::cast(object)->Size();
   }
-
-  INLINE(static int VisitJSArrayBuffer(Map* map, HeapObject* object));
-  INLINE(static int VisitJSTypedArray(Map* map, HeapObject* object));
-  INLINE(static int VisitJSDataView(Map* map, HeapObject* object));
 
   class DataObjectVisitor {
    public:
@@ -350,7 +339,7 @@ class StaticNewSpaceVisitor : public StaticVisitorBase {
       return object_size;
     }
 
-    INLINE(static int Visit(Map* map, HeapObject* object)) {
+    static inline int Visit(Map* map, HeapObject* object) {
       return map->instance_size();
     }
   };
@@ -393,19 +382,20 @@ class StaticMarkingVisitor : public StaticVisitorBase {
  public:
   static void Initialize();
 
-  INLINE(static void IterateBody(Map* map, HeapObject* obj)) {
+  static inline void IterateBody(Map* map, HeapObject* obj) {
     table_.GetVisitor(map)(map, obj);
   }
 
-  INLINE(static void VisitPropertyCell(Map* map, HeapObject* object));
-  INLINE(static void VisitCodeEntry(Heap* heap, Address entry_address));
-  INLINE(static void VisitEmbeddedPointer(Heap* heap, RelocInfo* rinfo));
-  INLINE(static void VisitCell(Heap* heap, RelocInfo* rinfo));
-  INLINE(static void VisitDebugTarget(Heap* heap, RelocInfo* rinfo));
-  INLINE(static void VisitCodeTarget(Heap* heap, RelocInfo* rinfo));
-  INLINE(static void VisitCodeAgeSequence(Heap* heap, RelocInfo* rinfo));
-  INLINE(static void VisitExternalReference(RelocInfo* rinfo)) { }
-  INLINE(static void VisitRuntimeEntry(RelocInfo* rinfo)) { }
+  static inline void VisitCodeEntry(Heap* heap, Address entry_address);
+  static inline void VisitEmbeddedPointer(Heap* heap, RelocInfo* rinfo);
+  static inline void VisitGlobalPropertyCell(Heap* heap, RelocInfo* rinfo);
+  static inline void VisitDebugTarget(Heap* heap, RelocInfo* rinfo);
+  static inline void VisitCodeTarget(Heap* heap, RelocInfo* rinfo);
+  static inline void VisitExternalReference(RelocInfo* rinfo) { }
+  static inline void VisitRuntimeEntry(RelocInfo* rinfo) { }
+
+  // TODO(mstarzinger): This should be made protected once refactoring is done.
+  static inline void VisitNativeContext(Map* map, HeapObject* object);
 
   // TODO(mstarzinger): This should be made protected once refactoring is done.
   // Mark non-optimize code for functions inlined into the given optimized
@@ -413,15 +403,11 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   static void MarkInlinedFunctionsCode(Heap* heap, Code* code);
 
  protected:
-  INLINE(static void VisitMap(Map* map, HeapObject* object));
-  INLINE(static void VisitCode(Map* map, HeapObject* object));
-  INLINE(static void VisitSharedFunctionInfo(Map* map, HeapObject* object));
-  INLINE(static void VisitJSFunction(Map* map, HeapObject* object));
-  INLINE(static void VisitJSRegExp(Map* map, HeapObject* object));
-  INLINE(static void VisitJSArrayBuffer(Map* map, HeapObject* object));
-  INLINE(static void VisitJSTypedArray(Map* map, HeapObject* object));
-  INLINE(static void VisitJSDataView(Map* map, HeapObject* object));
-  INLINE(static void VisitNativeContext(Map* map, HeapObject* object));
+  static inline void VisitMap(Map* map, HeapObject* object);
+  static inline void VisitCode(Map* map, HeapObject* object);
+  static inline void VisitSharedFunctionInfo(Map* map, HeapObject* object);
+  static inline void VisitJSFunction(Map* map, HeapObject* object);
+  static inline void VisitJSRegExp(Map* map, HeapObject* object);
 
   // Mark pointers in a Map and its TransitionArray together, possibly
   // treating transitions or back pointers weak.
@@ -429,8 +415,8 @@ class StaticMarkingVisitor : public StaticVisitorBase {
   static void MarkTransitionArray(Heap* heap, TransitionArray* transitions);
 
   // Code flushing support.
-  INLINE(static bool IsFlushable(Heap* heap, JSFunction* function));
-  INLINE(static bool IsFlushable(Heap* heap, SharedFunctionInfo* shared_info));
+  static inline bool IsFlushable(Heap* heap, JSFunction* function);
+  static inline bool IsFlushable(Heap* heap, SharedFunctionInfo* shared_info);
 
   // Helpers used by code flushing support that visit pointer fields and treat
   // references to code objects either strongly or weakly.
@@ -445,13 +431,9 @@ class StaticMarkingVisitor : public StaticVisitorBase {
     static inline void VisitSpecialized(Map* map, HeapObject* object) {
     }
 
-    INLINE(static void Visit(Map* map, HeapObject* object)) {
+    static inline void Visit(Map* map, HeapObject* object) {
     }
   };
-
-  typedef FlexibleBodyVisitor<StaticVisitor,
-                              FixedArray::BodyDescriptor,
-                              void> FixedArrayVisitor;
 
   typedef FlexibleBodyVisitor<StaticVisitor,
                               JSObject::BodyDescriptor,

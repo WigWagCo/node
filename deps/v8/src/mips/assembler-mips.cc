@@ -35,7 +35,7 @@
 
 #include "v8.h"
 
-#if V8_TARGET_ARCH_MIPS
+#if defined(V8_TARGET_ARCH_MIPS)
 
 #include "mips/assembler-mips-inl.h"
 #include "serialize.h"
@@ -47,13 +47,7 @@ namespace internal {
 bool CpuFeatures::initialized_ = false;
 #endif
 unsigned CpuFeatures::supported_ = 0;
-unsigned CpuFeatures::found_by_runtime_probing_only_ = 0;
-
-
-ExternalReference ExternalReference::cpu_features() {
-  ASSERT(CpuFeatures::initialized_);
-  return ExternalReference(&CpuFeatures::supported_);
-}
+unsigned CpuFeatures::found_by_runtime_probing_ = 0;
 
 
 // Get the CPU features enabled by the build. For cross compilation the
@@ -63,7 +57,7 @@ ExternalReference ExternalReference::cpu_features() {
 static uint64_t CpuFeaturesImpliedByCompiler() {
   uint64_t answer = 0;
 #ifdef CAN_USE_FPU_INSTRUCTIONS
-  answer |= static_cast<uint64_t>(1) << FPU;
+  answer |= 1u << FPU;
 #endif  // def CAN_USE_FPU_INSTRUCTIONS
 
 #ifdef __mips__
@@ -71,33 +65,11 @@ static uint64_t CpuFeaturesImpliedByCompiler() {
   // generation even when generating snapshots.  This won't work for cross
   // compilation.
 #if(defined(__mips_hard_float) && __mips_hard_float != 0)
-  answer |= static_cast<uint64_t>(1) << FPU;
+  answer |= 1u << FPU;
 #endif  // defined(__mips_hard_float) && __mips_hard_float != 0
 #endif  // def __mips__
 
   return answer;
-}
-
-
-const char* DoubleRegister::AllocationIndexToString(int index) {
-  ASSERT(index >= 0 && index < kMaxNumAllocatableRegisters);
-  const char* const names[] = {
-    "f0",
-    "f2",
-    "f4",
-    "f6",
-    "f8",
-    "f10",
-    "f12",
-    "f14",
-    "f16",
-    "f18",
-    "f20",
-    "f22",
-    "f24",
-    "f26"
-  };
-  return names[index];
 }
 
 
@@ -122,15 +94,17 @@ void CpuFeatures::Probe() {
   // If the compiler is allowed to use fpu then we can use fpu too in our
   // code generation.
 #if !defined(__mips__)
-  // For the simulator build, use FPU.
-  supported_ |= static_cast<uint64_t>(1) << FPU;
+  // For the simulator=mips build, use FPU when FLAG_enable_fpu is enabled.
+  if (FLAG_enable_fpu) {
+      supported_ |= 1u << FPU;
+  }
 #else
   // Probe for additional features not already known to be available.
   if (OS::MipsCpuHasFeature(FPU)) {
     // This implementation also sets the FPU flags if
     // runtime detection of FPU returns true.
-    supported_ |= static_cast<uint64_t>(1) << FPU;
-    found_by_runtime_probing_only_ |= static_cast<uint64_t>(1) << FPU;
+    supported_ |= 1u << FPU;
+    found_by_runtime_probing_ |= 1u << FPU;
   }
 #endif
 }
@@ -237,21 +211,17 @@ void RelocInfo::PatchCodeWithCall(Address target, int guard_bytes) {
 // See assembler-mips-inl.h for inlined constructors.
 
 Operand::Operand(Handle<Object> handle) {
-#ifdef DEBUG
-  Isolate* isolate = Isolate::Current();
-#endif
-  AllowDeferredHandleDereference using_raw_address;
   rm_ = no_reg;
   // Verify all Objects referred by code are NOT in new space.
   Object* obj = *handle;
-  ASSERT(!isolate->heap()->InNewSpace(obj));
+  ASSERT(!HEAP->InNewSpace(obj));
   if (obj->IsHeapObject()) {
     imm32_ = reinterpret_cast<intptr_t>(handle.location());
     rmode_ = RelocInfo::EMBEDDED_OBJECT;
   } else {
     // No relocation needed.
     imm32_ = reinterpret_cast<intptr_t>(obj);
-    rmode_ = RelocInfo::NONE32;
+    rmode_ = RelocInfo::NONE;
   }
 }
 
@@ -297,11 +267,45 @@ const Instr kLwSwInstrArgumentMask  = ~kLwSwInstrTypeMask;
 const Instr kLwSwOffsetMask = kImm16Mask;
 
 
-Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
-    : AssemblerBase(isolate, buffer, buffer_size),
+// Spare buffer.
+static const int kMinimalBufferSize = 4 * KB;
+
+
+Assembler::Assembler(Isolate* arg_isolate, void* buffer, int buffer_size)
+    : AssemblerBase(arg_isolate),
       recorded_ast_id_(TypeFeedbackId::None()),
-      positions_recorder_(this) {
-  reloc_info_writer.Reposition(buffer_ + buffer_size_, pc_);
+      positions_recorder_(this),
+      emit_debug_code_(FLAG_debug_code) {
+  if (buffer == NULL) {
+    // Do our own buffer management.
+    if (buffer_size <= kMinimalBufferSize) {
+      buffer_size = kMinimalBufferSize;
+
+      if (isolate()->assembler_spare_buffer() != NULL) {
+        buffer = isolate()->assembler_spare_buffer();
+        isolate()->set_assembler_spare_buffer(NULL);
+      }
+    }
+    if (buffer == NULL) {
+      buffer_ = NewArray<byte>(buffer_size);
+    } else {
+      buffer_ = static_cast<byte*>(buffer);
+    }
+    buffer_size_ = buffer_size;
+    own_buffer_ = true;
+
+  } else {
+    // Use externally provided buffer instead.
+    ASSERT(buffer_size > 0);
+    buffer_ = static_cast<byte*>(buffer);
+    buffer_size_ = buffer_size;
+    own_buffer_ = false;
+  }
+
+  // Set up buffer pointers.
+  ASSERT(buffer_ != NULL);
+  pc_ = buffer_;
+  reloc_info_writer.Reposition(buffer_ + buffer_size, pc_);
 
   last_trampoline_pool_end_ = 0;
   no_trampoline_pool_before_ = 0;
@@ -317,6 +321,18 @@ Assembler::Assembler(Isolate* isolate, void* buffer, int buffer_size)
   block_buffer_growth_ = false;
 
   ClearRecordedAstId();
+}
+
+
+Assembler::~Assembler() {
+  if (own_buffer_) {
+    if (isolate()->assembler_spare_buffer() == NULL &&
+        buffer_size_ == kMinimalBufferSize) {
+      isolate()->set_assembler_spare_buffer(buffer_);
+    } else {
+      DeleteArray(buffer_);
+    }
+  }
 }
 
 
@@ -487,6 +503,7 @@ bool Assembler::IsBranch(Instr instr) {
   uint32_t opcode   = GetOpcodeField(instr);
   uint32_t rt_field = GetRtField(instr);
   uint32_t rs_field = GetRsField(instr);
+  uint32_t label_constant = GetLabelConst(instr);
   // Checks if the instruction is a branch.
   return opcode == BEQ ||
       opcode == BNE ||
@@ -498,13 +515,8 @@ bool Assembler::IsBranch(Instr instr) {
       opcode == BGTZL ||
       (opcode == REGIMM && (rt_field == BLTZ || rt_field == BGEZ ||
                             rt_field == BLTZAL || rt_field == BGEZAL)) ||
-      (opcode == COP1 && rs_field == BC1);  // Coprocessor branch.
-}
-
-
-bool Assembler::IsEmittedConstant(Instr instr) {
-  uint32_t label_constant = GetLabelConst(instr);
-  return label_constant == 0;  // Emitted label const in reg-exp engine.
+      (opcode == COP1 && rs_field == BC1) ||  // Coprocessor branch.
+      label_constant == 0;  // Emitted label const in reg-exp engine.
 }
 
 
@@ -541,11 +553,9 @@ bool Assembler::IsJal(Instr instr) {
   return GetOpcodeField(instr) == JAL;
 }
 
-
 bool Assembler::IsJr(Instr instr) {
   return GetOpcodeField(instr) == SPECIAL && GetFunctionField(instr) == JR;
 }
-
 
 bool Assembler::IsJalr(Instr instr) {
   return GetOpcodeField(instr) == SPECIAL && GetFunctionField(instr) == JALR;
@@ -592,7 +602,7 @@ bool Assembler::IsNop(Instr instr, unsigned int type) {
 
 int32_t Assembler::GetBranchOffset(Instr instr) {
   ASSERT(IsBranch(instr));
-  return (static_cast<int16_t>(instr & kImm16Mask)) << 2;
+  return ((int16_t)(instr & kImm16Mask)) << 2;
 }
 
 
@@ -725,7 +735,7 @@ void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
     Instr instr_lui = instr_at(pos + 0 * Assembler::kInstrSize);
     Instr instr_ori = instr_at(pos + 1 * Assembler::kInstrSize);
     ASSERT(IsOri(instr_ori));
-    uint32_t imm = reinterpret_cast<uint32_t>(buffer_) + target_pos;
+    uint32_t imm = (uint32_t)buffer_ + target_pos;
     ASSERT((imm & 3) == 0);
 
     instr_lui &= ~kImm16Mask;
@@ -736,7 +746,7 @@ void Assembler::target_at_put(int32_t pos, int32_t target_pos) {
     instr_at_put(pos + 1 * Assembler::kInstrSize,
                  instr_ori | (imm & kImm16Mask));
   } else {
-    uint32_t imm28 = reinterpret_cast<uint32_t>(buffer_) + target_pos;
+    uint32_t imm28 = (uint32_t)buffer_ + target_pos;
     imm28 &= kImm28Mask;
     ASSERT((imm28 & 3) == 0);
 
@@ -799,7 +809,7 @@ void Assembler::bind_to(Label* L, int pos) {
       }
       target_at_put(fixup_pos, pos);
     } else {
-      ASSERT(IsJ(instr) || IsLui(instr) || IsEmittedConstant(instr));
+      ASSERT(IsJ(instr) || IsLui(instr));
       target_at_put(fixup_pos, pos);
     }
   }
@@ -829,7 +839,6 @@ void Assembler::next(Label* L) {
   }
 }
 
-
 bool Assembler::is_near(Label* L) {
   if (L->is_bound()) {
     return ((pc_offset() - L->pos()) < kMaxBranchOffset - 4 * kInstrSize);
@@ -837,13 +846,12 @@ bool Assembler::is_near(Label* L) {
   return false;
 }
 
-
 // We have to use a temporary register for things that can be relocated even
 // if they can be encoded in the MIPS's 16 bits of immediate-offset instruction
 // space.  There is no guarantee that the relocated location can be similarly
 // encoded.
 bool Assembler::MustUseReg(RelocInfo::Mode rmode) {
-  return !RelocInfo::IsNone(rmode);
+  return rmode != RelocInfo::NONE;
 }
 
 void Assembler::GenInstrRegister(Opcode opcode,
@@ -879,21 +887,9 @@ void Assembler::GenInstrRegister(Opcode opcode,
                                  FPURegister fd,
                                  SecondaryField func) {
   ASSERT(fd.is_valid() && fs.is_valid() && ft.is_valid());
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   Instr instr = opcode | fmt | (ft.code() << kFtShift) | (fs.code() << kFsShift)
       | (fd.code() << kFdShift) | func;
-  emit(instr);
-}
-
-
-void Assembler::GenInstrRegister(Opcode opcode,
-                                 FPURegister fr,
-                                 FPURegister ft,
-                                 FPURegister fs,
-                                 FPURegister fd,
-                                 SecondaryField func) {
-  ASSERT(fd.is_valid() && fr.is_valid() && fs.is_valid() && ft.is_valid());
-  Instr instr = opcode | (fr.code() << kFrShift) | (ft.code() << kFtShift)
-      | (fs.code() << kFsShift) | (fd.code() << kFdShift) | func;
   emit(instr);
 }
 
@@ -905,6 +901,7 @@ void Assembler::GenInstrRegister(Opcode opcode,
                                  FPURegister fd,
                                  SecondaryField func) {
   ASSERT(fd.is_valid() && fs.is_valid() && rt.is_valid());
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   Instr instr = opcode | fmt | (rt.code() << kRtShift)
       | (fs.code() << kFsShift) | (fd.code() << kFdShift) | func;
   emit(instr);
@@ -917,6 +914,7 @@ void Assembler::GenInstrRegister(Opcode opcode,
                                  FPUControlRegister fs,
                                  SecondaryField func) {
   ASSERT(fs.is_valid() && rt.is_valid());
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   Instr instr =
       opcode | fmt | (rt.code() << kRtShift) | (fs.code() << kFsShift) | func;
   emit(instr);
@@ -951,6 +949,7 @@ void Assembler::GenInstrImmediate(Opcode opcode,
                                   FPURegister ft,
                                   int32_t j) {
   ASSERT(rs.is_valid() && ft.is_valid() && (is_int16(j) || is_uint16(j)));
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   Instr instr = opcode | (rs.code() << kRsShift) | (ft.code() << kFtShift)
       | (j & kImm16Mask);
   emit(instr);
@@ -999,7 +998,7 @@ uint32_t Assembler::jump_address(Label* L) {
     }
   }
 
-  uint32_t imm = reinterpret_cast<uint32_t>(buffer_) + target_pos;
+  uint32_t imm = (uint32_t)buffer_ + target_pos;
   ASSERT((imm & 3) == 0);
 
   return imm;
@@ -1134,8 +1133,7 @@ void Assembler::j(int32_t target) {
 #if DEBUG
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((uint32_t)(ipc^target) >> (kImm26Bits+kImmFieldShift)) == 0;
   ASSERT(in_range && ((target & 3) == 0));
 #endif
   GenInstrJump(J, target >> 2);
@@ -1156,8 +1154,7 @@ void Assembler::jal(int32_t target) {
 #ifdef DEBUG
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((uint32_t)(ipc^target) >> (kImm26Bits+kImmFieldShift)) == 0;
   ASSERT(in_range && ((target & 3) == 0));
 #endif
   positions_recorder()->WriteRecordedPositions();
@@ -1176,8 +1173,8 @@ void Assembler::jalr(Register rs, Register rd) {
 void Assembler::j_or_jr(int32_t target, Register rs) {
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
+  bool in_range = ((uint32_t)(ipc^target) >> (kImm26Bits+kImmFieldShift)) == 0;
+
   if (in_range) {
       j(target);
   } else {
@@ -1189,8 +1186,8 @@ void Assembler::j_or_jr(int32_t target, Register rs) {
 void Assembler::jal_or_jalr(int32_t target, Register rs) {
   // Get pc of delay slot.
   uint32_t ipc = reinterpret_cast<uint32_t>(pc_ + 1 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(target) >>
-                  (kImm26Bits+kImmFieldShift)) == 0;
+  bool in_range = ((uint32_t)(ipc^target) >> (kImm26Bits+kImmFieldShift)) == 0;
+
   if (in_range) {
       jal(target);
   } else {
@@ -1347,7 +1344,7 @@ void Assembler::rotrv(Register rd, Register rt, Register rs) {
 // Helper for base-reg + offset, when offset is larger than int16.
 void Assembler::LoadRegPlusOffsetToAt(const MemOperand& src) {
   ASSERT(!src.rm().is(at));
-  lui(at, (src.offset_ >> kLuiShift) & kImm16Mask);
+  lui(at, src.offset_ >> kLuiShift);
   ori(at, at, src.offset_ & kImm16Mask);  // Load 32-bit offset.
   addu(at, at, src.rm());  // Add base register.
 }
@@ -1481,7 +1478,7 @@ void Assembler::break_(uint32_t code, bool break_as_stop) {
 void Assembler::stop(const char* msg, uint32_t code) {
   ASSERT(code > kMaxWatchpointCode);
   ASSERT(code <= kMaxStopCode);
-#if V8_HOST_ARCH_MIPS
+#if defined(V8_HOST_ARCH_MIPS)
   break_(0x54321);
 #else  // V8_HOST_ARCH_MIPS
   BlockTrampolinePoolFor(2);
@@ -1675,15 +1672,13 @@ void Assembler::cfc1(Register rt, FPUControlRegister fs) {
   GenInstrRegister(COP1, CFC1, rt, fs);
 }
 
-
 void Assembler::DoubleAsTwoUInt32(double d, uint32_t* lo, uint32_t* hi) {
   uint64_t i;
-  OS::MemCopy(&i, &d, 8);
+  memcpy(&i, &d, 8);
 
   *lo = i & 0xffffffff;
   *hi = i >> 32;
 }
-
 
 // Arithmetic.
 
@@ -1699,12 +1694,6 @@ void Assembler::sub_d(FPURegister fd, FPURegister fs, FPURegister ft) {
 
 void Assembler::mul_d(FPURegister fd, FPURegister fs, FPURegister ft) {
   GenInstrRegister(COP1, D, ft, fs, fd, MUL_D);
-}
-
-
-void Assembler::madd_d(FPURegister fd, FPURegister fr, FPURegister fs,
-    FPURegister ft) {
-  GenInstrRegister(COP1X, fr, ft, fs, fd, MADD_D);
 }
 
 
@@ -1874,6 +1863,7 @@ void Assembler::cvt_d_s(FPURegister fd, FPURegister fs) {
 // Conditions.
 void Assembler::c(FPUCondition cond, SecondaryField fmt,
     FPURegister fs, FPURegister ft, uint16_t cc) {
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   ASSERT(is_uint3(cc));
   ASSERT((fmt & ~(31 << kRsShift)) == 0);
   Instr instr = COP1 | fmt | ft.code() << 16 | fs.code() << kFsShift
@@ -1884,6 +1874,7 @@ void Assembler::c(FPUCondition cond, SecondaryField fmt,
 
 void Assembler::fcmp(FPURegister src1, const double src2,
       FPUCondition cond) {
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   ASSERT(src2 == 0.0);
   mtc1(zero_reg, f14);
   cvt_d_w(f14, f14);
@@ -1892,6 +1883,7 @@ void Assembler::fcmp(FPURegister src1, const double src2,
 
 
 void Assembler::bc1f(int16_t offset, uint16_t cc) {
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   ASSERT(is_uint3(cc));
   Instr instr = COP1 | BC1 | cc << 18 | 0 << 16 | (offset & kImm16Mask);
   emit(instr);
@@ -1899,6 +1891,7 @@ void Assembler::bc1f(int16_t offset, uint16_t cc) {
 
 
 void Assembler::bc1t(int16_t offset, uint16_t cc) {
+  ASSERT(CpuFeatures::IsEnabled(FPU));
   ASSERT(is_uint3(cc));
   Instr instr = COP1 | BC1 | cc << 18 | 1 << 16 | (offset & kImm16Mask);
   emit(instr);
@@ -1953,7 +1946,7 @@ int Assembler::RelocateInternalReference(byte* pc, intptr_t pc_delta) {
     return 2;  // Number of instructions patched.
   } else {
     uint32_t imm28 = (instr & static_cast<int32_t>(kImm26Mask)) << 2;
-    if (static_cast<int32_t>(imm28) == kEndOfJumpChain) {
+    if ((int32_t)imm28 == kEndOfJumpChain) {
       return 0;  // Number of instructions patched.
     }
     imm28 += pc_delta;
@@ -1993,9 +1986,9 @@ void Assembler::GrowBuffer() {
   // Copy the data.
   int pc_delta = desc.buffer - buffer_;
   int rc_delta = (desc.buffer + desc.buffer_size) - (buffer_ + buffer_size_);
-  OS::MemMove(desc.buffer, buffer_, desc.instr_size);
-  OS::MemMove(reloc_info_writer.pos() + rc_delta,
-              reloc_info_writer.pos(), desc.reloc_size);
+  memmove(desc.buffer, buffer_, desc.instr_size);
+  memmove(reloc_info_writer.pos() + rc_delta,
+          reloc_info_writer.pos(), desc.reloc_size);
 
   // Switch buffers.
   DeleteArray(buffer_);
@@ -2043,7 +2036,7 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data) {
            || RelocInfo::IsPosition(rmode));
     // These modes do not need an entry in the constant pool.
   }
-  if (!RelocInfo::IsNone(rinfo.rmode())) {
+  if (rinfo.rmode() != RelocInfo::NONE) {
     // Don't record external references unless the heap will be serialized.
     if (rmode == RelocInfo::EXTERNAL_REFERENCE) {
 #ifdef DEBUG
@@ -2203,10 +2196,9 @@ void Assembler::set_target_address_at(Address pc, Address target) {
 
   Instr instr3 = instr_at(pc + 2 * kInstrSize);
   uint32_t ipc = reinterpret_cast<uint32_t>(pc + 3 * kInstrSize);
-  bool in_range = (ipc ^ static_cast<uint32_t>(itarget) >>
-                  (kImm26Bits + kImmFieldShift)) == 0;
-  uint32_t target_field =
-      static_cast<uint32_t>(itarget & kJumpAddrMask) >> kImmFieldShift;
+  bool in_range =
+             ((uint32_t)(ipc ^ itarget) >> (kImm26Bits + kImmFieldShift)) == 0;
+  uint32_t target_field = (uint32_t)(itarget & kJumpAddrMask) >> kImmFieldShift;
   bool patched_jump = false;
 
 #ifndef ALLOW_JAL_IN_BOUNDARY_REGION
@@ -2264,7 +2256,6 @@ void Assembler::set_target_address_at(Address pc, Address target) {
 
   CPU::FlushICache(pc, (patched_jump ? 3 : 2) * sizeof(int32_t));
 }
-
 
 void Assembler::JumpLabelToJumpRegister(Address pc) {
   // Address pc points to lui/ori instructions.

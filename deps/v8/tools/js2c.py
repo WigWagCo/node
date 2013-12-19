@@ -214,9 +214,9 @@ def ReadMacros(lines):
 HEADER_TEMPLATE = """\
 // Copyright 2011 Google Inc. All Rights Reserved.
 
-// This file was generated from .js source files by GYP.  If you
+// This file was generated from .js source files by SCons.  If you
 // want to make changes to this file you should either change the
-// javascript source files or the GYP script.
+// javascript source files or the SConstruct script.
 
 #include "v8.h"
 #include "natives.h"

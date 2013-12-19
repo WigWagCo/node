@@ -19,90 +19,117 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "handle_wrap.h"
-#include "env.h"
-#include "env-inl.h"
 #include "node.h"
-#include "queue.h"
+#include "ngx-queue.h"
+#include "handle_wrap.h"
 
 namespace node {
 
+using v8::Arguments;
+using v8::Array;
 using v8::Context;
-using v8::FunctionCallbackInfo;
+using v8::Function;
+using v8::FunctionTemplate;
 using v8::Handle;
 using v8::HandleScope;
+using v8::Integer;
 using v8::Local;
 using v8::Object;
+using v8::Persistent;
+using v8::String;
+using v8::TryCatch;
+using v8::Undefined;
 using v8::Value;
 
+
 // defined in node.cc
-extern QUEUE handle_wrap_queue;
+extern ngx_queue_t handle_wrap_queue;
+static Persistent<String> close_sym;
 
 
-void HandleWrap::Ref(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+void HandleWrap::Initialize(Handle<Object> target) {
+  /* Doesn't do anything at the moment. */
+}
 
-  HandleWrap* wrap;
-  NODE_UNWRAP_NO_ABORT(args.This(), HandleWrap, wrap);
+
+Handle<Value> HandleWrap::Ref(const Arguments& args) {
+  HandleScope scope;
+
+  UNWRAP_NO_ABORT(HandleWrap)
 
   if (wrap != NULL && wrap->handle__ != NULL) {
     uv_ref(wrap->handle__);
     wrap->flags_ &= ~kUnref;
   }
+
+  return v8::Undefined();
 }
 
 
-void HandleWrap::Unref(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> HandleWrap::Unref(const Arguments& args) {
+  HandleScope scope;
 
-  HandleWrap* wrap;
-  NODE_UNWRAP_NO_ABORT(args.This(), HandleWrap, wrap);
+  UNWRAP_NO_ABORT(HandleWrap)
 
   if (wrap != NULL && wrap->handle__ != NULL) {
     uv_unref(wrap->handle__);
     wrap->flags_ |= kUnref;
   }
+
+  return v8::Undefined();
 }
 
 
-void HandleWrap::Close(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
+Handle<Value> HandleWrap::Close(const Arguments& args) {
+  HandleScope scope;
 
-  HandleWrap* wrap;
-  NODE_UNWRAP_NO_ABORT(args.This(), HandleWrap, wrap);
+  HandleWrap *wrap = static_cast<HandleWrap*>(
+      args.Holder()->GetPointerFromInternalField(0));
 
   // guard against uninitialized handle or double close
-  if (wrap == NULL || wrap->handle__ == NULL) return;
+  if (wrap == NULL || wrap->handle__ == NULL) {
+    return Undefined();
+  }
 
-  Environment* env = wrap->env();
-  assert(!wrap->persistent().IsEmpty());
+  assert(!wrap->object_.IsEmpty());
   uv_close(wrap->handle__, OnClose);
   wrap->handle__ = NULL;
 
   if (args[0]->IsFunction()) {
-    wrap->object()->Set(env->close_string(), args[0]);
+    if (close_sym.IsEmpty() == true) close_sym = NODE_PSYMBOL("close");
+    wrap->object_->Set(close_sym, args[0]);
     wrap->flags_ |= kCloseCallback;
   }
+
+  return Undefined();
 }
 
 
-HandleWrap::HandleWrap(Environment* env,
-                       Handle<Object> object,
-                       uv_handle_t* handle)
-    : env_(env)
-    , flags_(0)
-    , handle__(handle) {
-  handle__->data = this;
-  HandleScope scope(node_isolate);
-  persistent().Reset(node_isolate, object);
-  NODE_WRAP(object, this);
-  QUEUE_INSERT_TAIL(&handle_wrap_queue, &handle_wrap_queue_);
+HandleWrap::HandleWrap(Handle<Object> object, uv_handle_t* h) {
+  flags_ = 0;
+  handle__ = h;
+  if (h) {
+    h->data = this;
+  }
+
+  HandleScope scope;
+  assert(object_.IsEmpty());
+  assert(object->InternalFieldCount() > 0);
+  object_ = v8::Persistent<v8::Object>::New(object);
+  object_->SetPointerInInternalField(0, this);
+  ngx_queue_insert_tail(&handle_wrap_queue, &handle_wrap_queue_);
+}
+
+
+void HandleWrap::SetHandle(uv_handle_t* h) {
+  handle__ = h;
+  h->data = this;
 }
 
 
 HandleWrap::~HandleWrap() {
-  assert(persistent().IsEmpty());
-  QUEUE_REMOVE(&handle_wrap_queue_);
+  assert(object_.IsEmpty());
+  ngx_queue_remove(&handle_wrap_queue_);
 }
 
 
@@ -110,24 +137,22 @@ void HandleWrap::OnClose(uv_handle_t* handle) {
   HandleScope scope;
 
   HandleWrap* wrap = static_cast<HandleWrap*>(handle->data);
-  Environment* env = wrap->env();
 
   // The wrap object should still be there.
-  assert(wrap->persistent().IsEmpty() == false);
+  assert(wrap->object_.IsEmpty() == false);
 
   // But the handle pointer should be gone.
   assert(wrap->handle__ == NULL);
 
-  Context::Scope context_scope(env->context());
-  HandleScope handle_scope(env->isolate());
-  Local<Object> object = wrap->object();
-
   if (wrap->flags_ & kCloseCallback) {
-    MakeCallback(env, object, env->close_string());
+    assert(close_sym.IsEmpty() == false);
+    MakeCallback(wrap->object_, close_sym, 0, NULL);
   }
 
-  object->SetAlignedPointerInInternalField(0, NULL);
-  wrap->persistent().Dispose();
+  wrap->object_->SetPointerInInternalField(0, NULL);
+  wrap->object_.Dispose();
+  wrap->object_.Clear();
+
   delete wrap;
 }
 

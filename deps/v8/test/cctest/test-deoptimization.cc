@@ -77,27 +77,23 @@ class AlwaysOptimizeAllowNativesSyntaxNoInlining {
 
 // Utility class to set --allow-natives-syntax and --nouse-inlining when
 // constructed and return to their default state when destroyed.
-class AllowNativesSyntaxNoInliningNoParallel {
+class AllowNativesSyntaxNoInlining {
  public:
-  AllowNativesSyntaxNoInliningNoParallel()
+  AllowNativesSyntaxNoInlining()
       : allow_natives_syntax_(i::FLAG_allow_natives_syntax),
-        use_inlining_(i::FLAG_use_inlining),
-        parallel_recompilation_(i::FLAG_parallel_recompilation) {
+        use_inlining_(i::FLAG_use_inlining) {
     i::FLAG_allow_natives_syntax = true;
     i::FLAG_use_inlining = false;
-    i::FLAG_parallel_recompilation = false;
   }
 
-  ~AllowNativesSyntaxNoInliningNoParallel() {
+  ~AllowNativesSyntaxNoInlining() {
     i::FLAG_allow_natives_syntax = allow_natives_syntax_;
     i::FLAG_use_inlining = use_inlining_;
-    i::FLAG_parallel_recompilation = parallel_recompilation_;
   }
 
  private:
   bool allow_natives_syntax_;
   bool use_inlining_;
-  bool parallel_recompilation_;
 };
 
 
@@ -117,8 +113,8 @@ static Handle<JSFunction> GetJSFunction(v8::Handle<v8::Object> obj,
 
 
 TEST(DeoptimizeSimple) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   // Test lazy deoptimization of a simple function.
   {
@@ -155,8 +151,8 @@ TEST(DeoptimizeSimple) {
 
 
 TEST(DeoptimizeSimpleWithArguments) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   // Test lazy deoptimization of a simple function with some arguments.
   {
@@ -194,8 +190,8 @@ TEST(DeoptimizeSimpleWithArguments) {
 
 
 TEST(DeoptimizeSimpleNested) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   // Test lazy deoptimization of a simple function. Have a nested function call
   // do the deoptimization.
@@ -219,8 +215,8 @@ TEST(DeoptimizeSimpleNested) {
 
 
 TEST(DeoptimizeRecursive) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   {
     // Test lazy deoptimization of a simple function called recursively. Call
@@ -246,8 +242,8 @@ TEST(DeoptimizeRecursive) {
 
 
 TEST(DeoptimizeMultiple) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   {
     AlwaysOptimizeAllowNativesSyntaxNoInlining options;
@@ -274,8 +270,8 @@ TEST(DeoptimizeMultiple) {
 
 
 TEST(DeoptimizeConstructor) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   {
     AlwaysOptimizeAllowNativesSyntaxNoInlining options;
@@ -312,8 +308,8 @@ TEST(DeoptimizeConstructor) {
 
 
 TEST(DeoptimizeConstructorMultiple) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   {
     AlwaysOptimizeAllowNativesSyntaxNoInlining options;
@@ -341,13 +337,13 @@ TEST(DeoptimizeConstructorMultiple) {
 
 
 TEST(DeoptimizeBinaryOperationADDString) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   const char* f_source = "function f(x, y) { return x + y; };";
 
   {
-    AllowNativesSyntaxNoInliningNoParallel options;
+    AllowNativesSyntaxNoInlining options;
     // Compile function f and collect to type feedback to insert binary op stub
     // call in the optimized code.
     i::FLAG_prepare_always_opt = true;
@@ -380,8 +376,8 @@ TEST(DeoptimizeBinaryOperationADDString) {
   CHECK_EQ(1, env->Global()->Get(v8_str("count"))->Int32Value());
   v8::Handle<v8::Value> result = env->Global()->Get(v8_str("result"));
   CHECK(result->IsString());
-  v8::String::Utf8Value utf8(result);
-  CHECK_EQ("a+an X", *utf8);
+  v8::String::AsciiValue ascii(result);
+  CHECK_EQ("a+an X", *ascii);
   CHECK_EQ(0, Deoptimizer::GetDeoptimizedCodeCount(Isolate::Current()));
 }
 
@@ -405,7 +401,7 @@ static void TestDeoptimizeBinaryOpHelper(LocalContext* env,
                binary_op);
   char* f_source = f_source_buffer.start();
 
-  AllowNativesSyntaxNoInliningNoParallel options;
+  AllowNativesSyntaxNoInlining options;
   // Compile function f and collect to type feedback to insert binary op stub
   // call in the optimized code.
   i::FLAG_prepare_always_opt = true;
@@ -431,8 +427,8 @@ static void TestDeoptimizeBinaryOpHelper(LocalContext* env,
 
 
 TEST(DeoptimizeBinaryOperationADD) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   TestDeoptimizeBinaryOpHelper(&env, "+");
 
@@ -443,8 +439,8 @@ TEST(DeoptimizeBinaryOperationADD) {
 
 
 TEST(DeoptimizeBinaryOperationSUB) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   TestDeoptimizeBinaryOpHelper(&env, "-");
 
@@ -455,8 +451,8 @@ TEST(DeoptimizeBinaryOperationSUB) {
 
 
 TEST(DeoptimizeBinaryOperationMUL) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   TestDeoptimizeBinaryOpHelper(&env, "*");
 
@@ -467,8 +463,8 @@ TEST(DeoptimizeBinaryOperationMUL) {
 
 
 TEST(DeoptimizeBinaryOperationDIV) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   TestDeoptimizeBinaryOpHelper(&env, "/");
 
@@ -479,8 +475,8 @@ TEST(DeoptimizeBinaryOperationDIV) {
 
 
 TEST(DeoptimizeBinaryOperationMOD) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   TestDeoptimizeBinaryOpHelper(&env, "%");
 
@@ -491,13 +487,13 @@ TEST(DeoptimizeBinaryOperationMOD) {
 
 
 TEST(DeoptimizeCompare) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   const char* f_source = "function f(x, y) { return x < y; };";
 
   {
-    AllowNativesSyntaxNoInliningNoParallel options;
+    AllowNativesSyntaxNoInlining options;
     // Compile function f and collect to type feedback to insert compare ic
     // call in the optimized code.
     i::FLAG_prepare_always_opt = true;
@@ -534,8 +530,8 @@ TEST(DeoptimizeCompare) {
 
 
 TEST(DeoptimizeLoadICStoreIC) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   // Functions to generate load/store/keyed load/keyed store IC calls.
   const char* f1_source = "function f1(x) { return x.y; };";
@@ -544,7 +540,7 @@ TEST(DeoptimizeLoadICStoreIC) {
   const char* g2_source = "function g2(x, y) { x[y] = 1; };";
 
   {
-    AllowNativesSyntaxNoInliningNoParallel options;
+    AllowNativesSyntaxNoInlining options;
     // Compile functions and collect to type feedback to insert ic
     // calls in the optimized code.
     i::FLAG_prepare_always_opt = true;
@@ -614,8 +610,8 @@ TEST(DeoptimizeLoadICStoreIC) {
 
 
 TEST(DeoptimizeLoadICStoreICNested) {
+  v8::HandleScope scope;
   LocalContext env;
-  v8::HandleScope scope(env->GetIsolate());
 
   // Functions to generate load/store/keyed load/keyed store IC calls.
   const char* f1_source = "function f1(x) { return x.y; };";
@@ -624,7 +620,7 @@ TEST(DeoptimizeLoadICStoreICNested) {
   const char* g2_source = "function g2(x, y) { x[y] = 1; };";
 
   {
-    AllowNativesSyntaxNoInliningNoParallel options;
+    AllowNativesSyntaxNoInlining options;
     // Compile functions and collect to type feedback to insert ic
     // calls in the optimized code.
     i::FLAG_prepare_always_opt = true;

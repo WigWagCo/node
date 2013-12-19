@@ -50,6 +50,7 @@ MaybeObject* TransitionArray::Allocate(int number_of_transitions) {
   FixedArray* array;
   MaybeObject* maybe_array = AllocateRaw(ToKeyIndex(number_of_transitions));
   if (!maybe_array->To(&array)) return maybe_array;
+  array->set(kElementsTransitionIndex, Smi::FromInt(0));
   array->set(kPrototypeTransitionsIndex, Smi::FromInt(0));
   return array;
 }
@@ -64,13 +65,13 @@ void TransitionArray::NoIncrementalWriteBarrierCopyFrom(TransitionArray* origin,
 }
 
 
-static bool InsertionPointFound(Name* key1, Name* key2) {
+static bool InsertionPointFound(String* key1, String* key2) {
   return key1->Hash() > key2->Hash();
 }
 
 
 MaybeObject* TransitionArray::NewWith(SimpleTransitionFlag flag,
-                                      Name* key,
+                                      String* key,
                                       Map* target,
                                       Object* back_pointer) {
   TransitionArray* result;
@@ -106,7 +107,7 @@ MaybeObject* TransitionArray::ExtendToFullTransitionArray() {
 }
 
 
-MaybeObject* TransitionArray::CopyInsert(Name* name, Map* target) {
+MaybeObject* TransitionArray::CopyInsert(String* name, Map* target) {
   TransitionArray* result;
 
   int number_of_transitions = this->number_of_transitions();
@@ -119,6 +120,10 @@ MaybeObject* TransitionArray::CopyInsert(Name* name, Map* target) {
   maybe_array = TransitionArray::Allocate(new_size);
   if (!maybe_array->To(&result)) return maybe_array;
 
+  if (HasElementsTransition()) {
+    result->set_elements_transition(elements_transition());
+  }
+
   if (HasPrototypeTransitions()) {
     result->SetPrototypeTransitions(GetPrototypeTransitions());
   }
@@ -130,7 +135,6 @@ MaybeObject* TransitionArray::CopyInsert(Name* name, Map* target) {
       }
     }
     result->NoIncrementalWriteBarrierSet(insertion_index, name, target);
-    result->set_back_pointer_storage(back_pointer_storage());
     return result;
   }
 
