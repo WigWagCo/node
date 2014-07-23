@@ -60,6 +60,7 @@ The following shorthands are parsed on the command-line:
 * `-D`: `--save-dev`
 * `-O`: `--save-optional`
 * `-B`: `--save-bundle`
+* `-E`: `--save-exact`
 * `-y`: `--yes`
 * `-n`: `--yes false`
 * `ll` and `la` commands: `ls --long`
@@ -401,7 +402,7 @@ The value `npm init` should use by default for the package author's homepage.
 
 ### init.license
 
-* Default: "BSD-2-Clause"
+* Default: "ISC"
 * Type: String
 
 The value `npm init` should use by default for the package license.
@@ -466,7 +467,7 @@ The default is "http", which shows http, warn, and error output.
 * Type: Stream
 
 This is the stream that is passed to the
-[npmlog](https://github.com/isaacs/npmlog) module at run time.
+[npmlog](https://github.com/npm/npmlog) module at run time.
 
 It cannot be set from the command line, but if you are using npm
 programmatically, you may wish to send logs to somewhere other than
@@ -480,7 +481,7 @@ colored output if it is a TTY.
 * Default: false
 * Type: Boolean
 
-Show extended information in `npm ls`
+Show extended information in `npm ls` and `npm search`.
 
 ### message
 
@@ -620,22 +621,45 @@ bundledDependencies list.
 
 Save installed packages to a package.json file as devDependencies.
 
-When used with the `npm rm` command, it removes it from the devDependencies
-hash.
+When used with the `npm rm` command, it removes it from the
+devDependencies hash.
 
 Only works if there is already a package.json file present.
+
+### save-exact
+
+* Default: false
+* Type: Boolean
+
+Dependencies saved to package.json using `--save`, `--save-dev` or
+`--save-optional` will be configured with an exact version rather than
+using npm's default semver range operator.
 
 ### save-optional
 
 * Default: false
 * Type: Boolean
 
-Save installed packages to a package.json file as optionalDependencies.
+Save installed packages to a package.json file as
+optionalDependencies.
 
-When used with the `npm rm` command, it removes it from the devDependencies
-hash.
+When used with the `npm rm` command, it removes it from the
+devDependencies hash.
 
 Only works if there is already a package.json file present.
+
+### save-prefix
+
+* Default: '^'
+* Type: String
+
+Configure how versions of packages installed to a package.json file via 
+`--save` or `--save-dev` get prefixed.
+
+For example if a package has version `1.2.3`, by default it's version is
+set to `^1.2.3` which allows minor upgrades for that package, but after  
+`npm config set save-prefix='~'` it would be set to `~1.2.3` which only allows
+patch upgrades.
 
 ### searchopts
 

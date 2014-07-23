@@ -31,7 +31,15 @@ var EventEmitter = require("events").EventEmitter
   , chain = slide.chain
   , RegClient = require("npm-registry-client")
 
-npm.config = {loaded: false}
+npm.config = {
+  loaded: false,
+  get: function() {
+    throw new Error('npm.load() required')
+  },
+  set: function() {
+    throw new Error('npm.load() required')
+  }
+}
 
 // /usr/local is often a read-only fs, which is not
 // well handled by node or mkdirp.  Just double-check
@@ -104,6 +112,7 @@ var commandCache = {}
               , "login": "adduser"
               , "add-user": "adduser"
               , "tst": "test"
+              , "t": "test"
               , "find-dupes": "dedupe"
               , "ddp": "dedupe"
               , "v": "view"
@@ -182,20 +191,38 @@ Object.keys(abbrevs).concat(plumbing).forEach(function addCommand (c) {
     if (c === "la" || c === "ll") {
       npm.config.set("long", true)
     }
+
     npm.command = c
     if (commandCache[a]) return commandCache[a]
+
     var cmd = require(__dirname+"/"+a+".js")
+
     commandCache[a] = function () {
       var args = Array.prototype.slice.call(arguments, 0)
       if (typeof args[args.length - 1] !== "function") {
         args.push(defaultCb)
       }
       if (args.length === 1) args.unshift([])
+
+      npm.registry.refer = [a].concat(args[0]).map(function (arg) {
+        // exclude anything that might be a URL, path, or private module
+        // Those things will always have a slash in them somewhere
+        if (arg && arg.match && arg.match(/\/|\\/)) {
+          return "[REDACTED]"
+        } else {
+          return arg
+        }
+      }).filter(function (arg) {
+        return arg && arg.match
+      }).join(" ")
+
       cmd.apply(npm, args)
     }
+
     Object.keys(cmd).forEach(function (k) {
       commandCache[a][k] = cmd[k]
     })
+
     return commandCache[a]
   }, enumerable: fullList.indexOf(c) !== -1 })
 
@@ -278,6 +305,14 @@ function load (npm, cli, cb) {
     var builtin = path.resolve(__dirname, "..", "npmrc")
     npmconf.load(cli, builtin, function (er, config) {
       if (er === config) er = null
+
+      // Include npm-version and node-version in user-agent
+      var ua = config.get("user-agent") || ""
+      ua = ua.replace(/\{node-version\}/gi, process.version)
+      ua = ua.replace(/\{npm-version\}/gi, npm.version)
+      ua = ua.replace(/\{platform\}/gi, process.platform)
+      ua = ua.replace(/\{arch\}/gi, process.arch)
+      config.set("user-agent", ua)
 
       npm.config = config
 

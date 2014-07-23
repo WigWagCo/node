@@ -42,20 +42,23 @@ using namespace v8::internal;
 
 
 int STDCALL ConvertDToICVersion(double d) {
-  Address double_ptr = reinterpret_cast<Address>(&d);
-  uint32_t exponent_bits = Memory::uint32_at(double_ptr + kDoubleSize / 2);
+  union { double d; uint32_t u[2]; } dbl;
+  dbl.d = d;
+  uint32_t exponent_bits = dbl.u[1];
   int32_t shifted_mask = static_cast<int32_t>(Double::kExponentMask >> 32);
   int32_t exponent = (((exponent_bits & shifted_mask) >>
                        (Double::kPhysicalSignificandSize - 32)) -
                       HeapNumber::kExponentBias);
+  if (exponent < 0) {
+    return 0;
+  }
   uint32_t unsigned_exponent = static_cast<uint32_t>(exponent);
   int result = 0;
   uint32_t max_exponent =
     static_cast<uint32_t>(Double::kPhysicalSignificandSize);
   if (unsigned_exponent >= max_exponent) {
     if ((exponent - Double::kPhysicalSignificandSize) < 32) {
-      result = Memory::uint32_at(double_ptr) <<
-        (exponent - Double::kPhysicalSignificandSize);
+      result = dbl.u[0] << (exponent - Double::kPhysicalSignificandSize);
     }
   } else {
     uint64_t big_result =
@@ -71,12 +74,19 @@ int STDCALL ConvertDToICVersion(double d) {
 }
 
 
-void RunOneTruncationTestWithTest(ConvertDToIFunc func,
+void RunOneTruncationTestWithTest(ConvertDToICallWrapper callWrapper,
+                                  ConvertDToIFunc func,
                                   double from,
                                   double raw) {
   uint64_t to = static_cast<int64_t>(raw);
-  int result = (*func)(from);
+  int result = (*callWrapper)(func, from);
   CHECK_EQ(static_cast<int>(to), result);
+}
+
+
+int32_t DefaultCallWrapper(ConvertDToIFunc func,
+                           double from) {
+  return (*func)(from);
 }
 
 
@@ -84,9 +94,17 @@ void RunOneTruncationTestWithTest(ConvertDToIFunc func,
 // directly to a .js file and run them.
 #define NaN (OS::nan_value())
 #define Infinity (std::numeric_limits<double>::infinity())
-#define RunOneTruncationTest(p1, p2) RunOneTruncationTestWithTest(func, p1, p2)
+#define RunOneTruncationTest(p1, p2) \
+    RunOneTruncationTestWithTest(callWrapper, func, p1, p2)
+
 
 void RunAllTruncationTests(ConvertDToIFunc func) {
+  RunAllTruncationTests(DefaultCallWrapper, func);
+}
+
+
+void RunAllTruncationTests(ConvertDToICallWrapper callWrapper,
+                           ConvertDToIFunc func) {
   RunOneTruncationTest(0, 0);
   RunOneTruncationTest(0.5, 0);
   RunOneTruncationTest(-0.5, 0);
@@ -98,9 +116,26 @@ void RunAllTruncationTests(ConvertDToIFunc func) {
   RunOneTruncationTest(Infinity, 0);
   RunOneTruncationTest(-NaN, 0);
   RunOneTruncationTest(-Infinity, 0);
+  RunOneTruncationTest(4.94065645841e-324, 0);
+  RunOneTruncationTest(-4.94065645841e-324, 0);
 
-  RunOneTruncationTest(4.5036e+15, 0x1635E000);
+  RunOneTruncationTest(0.9999999999999999, 0);
+  RunOneTruncationTest(-0.9999999999999999, 0);
+  RunOneTruncationTest(4294967296.0, 0);
+  RunOneTruncationTest(-4294967296.0, 0);
+  RunOneTruncationTest(9223372036854775000.0, 4294966272.0);
+  RunOneTruncationTest(-9223372036854775000.0, -4294966272.0);
+  RunOneTruncationTest(4.5036e+15, 372629504);
   RunOneTruncationTest(-4.5036e+15, -372629504);
+
+  RunOneTruncationTest(287524199.5377777, 0x11234567);
+  RunOneTruncationTest(-287524199.5377777, -0x11234567);
+  RunOneTruncationTest(2300193596.302222, 2300193596.0);
+  RunOneTruncationTest(-2300193596.302222, -2300193596.0);
+  RunOneTruncationTest(4600387192.604444, 305419896);
+  RunOneTruncationTest(-4600387192.604444, -305419896);
+  RunOneTruncationTest(4823855600872397.0, 1737075661);
+  RunOneTruncationTest(-4823855600872397.0, -1737075661);
 
   RunOneTruncationTest(4503603922337791.0, -1);
   RunOneTruncationTest(-4503603922337791.0, 1);
@@ -119,10 +154,19 @@ void RunAllTruncationTests(ConvertDToIFunc func) {
   RunOneTruncationTest(4.8357078901445341e+24, -1073741824);
   RunOneTruncationTest(-4.8357078901445341e+24, 1073741824);
 
+  RunOneTruncationTest(2147483647.0, 2147483647.0);
+  RunOneTruncationTest(-2147483648.0, -2147483648.0);
   RunOneTruncationTest(9.6714111686030497e+24, -2147483648.0);
   RunOneTruncationTest(-9.6714111686030497e+24, -2147483648.0);
   RunOneTruncationTest(9.6714157802890681e+24, -2147483648.0);
   RunOneTruncationTest(-9.6714157802890681e+24, -2147483648.0);
+  RunOneTruncationTest(1.9342813113834065e+25, 2147483648.0);
+  RunOneTruncationTest(-1.9342813113834065e+25, 2147483648.0);
+
+  RunOneTruncationTest(3.868562622766813e+25, 0);
+  RunOneTruncationTest(-3.868562622766813e+25, 0);
+  RunOneTruncationTest(1.7976931348623157e+308, 0);
+  RunOneTruncationTest(-1.7976931348623157e+308, 0);
 }
 
 #undef NaN

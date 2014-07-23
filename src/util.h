@@ -23,7 +23,9 @@
 #define SRC_UTIL_H_
 
 #include "v8.h"
+#include <assert.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 namespace node {
 
@@ -41,7 +43,27 @@ namespace node {
   void operator=(const TypeName&);                                            \
   TypeName(const TypeName&)
 
-// If persistent.IsWeak() == false, then do not call persistent.Dispose()
+#if defined(NDEBUG)
+# define ASSERT(expression)
+# define CHECK(expression)                                                    \
+  do {                                                                        \
+    if (!(expression)) abort();                                               \
+  } while (0)
+#else
+# define ASSERT(expression)  assert(expression)
+# define CHECK(expression)   assert(expression)
+#endif
+
+#define CHECK_EQ(a, b) CHECK((a) == (b))
+#define CHECK_GE(a, b) CHECK((a) >= (b))
+#define CHECK_GT(a, b) CHECK((a) > (b))
+#define CHECK_LE(a, b) CHECK((a) <= (b))
+#define CHECK_LT(a, b) CHECK((a) < (b))
+#define CHECK_NE(a, b) CHECK((a) != (b))
+
+#define UNREACHABLE() abort()
+
+// If persistent.IsWeak() == false, then do not call persistent.Reset()
 // while the returned Local<T> is still in scope, it will destroy the
 // reference to the object.
 template <class TypeName>
@@ -52,7 +74,7 @@ inline v8::Local<TypeName> PersistentToLocal(
 // Unchecked conversion from a non-weak Persistent<T> to Local<TLocal<T>,
 // use with care!
 //
-// Do not call persistent.Dispose() while the returned Local<T> is still in
+// Do not call persistent.Reset() while the returned Local<T> is still in
 // scope, it will destroy the reference to the object.
 template <class TypeName>
 inline v8::Local<TypeName> StrongPersistentToLocal(
@@ -76,6 +98,11 @@ inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
 inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            const unsigned char* data,
                                            int length = -1);
+
+inline void Wrap(v8::Local<v8::Object> object, void* pointer);
+
+template <typename TypeName>
+inline TypeName* Unwrap(v8::Local<v8::Object> object);
 
 }  // namespace node
 

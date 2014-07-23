@@ -60,20 +60,6 @@
 
     'v8_enable_backtrace%': 0,
 
-    # Speeds up Debug builds:
-    # 0 - Compiler optimizations off (debuggable) (default). This may
-    #     be 5x slower than Release (or worse).
-    # 1 - Turn on compiler optimizations. This may be hard or impossible to
-    #     debug. This may still be 2x slower than Release (or worse).
-    # 2 - Turn on optimizations, and also #undef DEBUG / #define NDEBUG
-    #     (but leave V8_ENABLE_CHECKS and most other assertions enabled.
-    #     This may cause some v8 tests to fail in the Debug configuration.
-    #     This roughly matches the performance of a Release build and can
-    #     be used by embedders that need to build their own code as debug
-    #     but don't want or need a debug version of V8. This should produce
-    #     near-release speeds.
-    'v8_optimized_debug%': 0,
-
     # Enable profiling support. Only required on Windows.
     'v8_enable_prof%': 0,
 
@@ -83,6 +69,11 @@
     # Chrome needs this definition unconditionally. For standalone V8 builds,
     # it's handled in build/standalone.gypi.
     'want_separate_host_toolset%': 1,
+
+    # Toolset the d8 binary should be compiled for. Possible values are 'host'
+    # and 'target'. If you want to run v8 tests, it needs to be set to 'target'.
+    # The setting is ignored if want_separate_host_toolset is 0.
+    'v8_toolset_for_d8%': 'target',
 
     'host_os%': '<(OS)',
     'werror%': '-Werror',
@@ -106,10 +97,10 @@
             'conditions': [
               ['armcompiler=="yes"', {
                 'conditions': [
-                  [ 'armv7==1', {
+                  [ 'arm_version==7', {
                     'cflags': ['-march=armv7-a',],
                   }],
-                  [ 'armv7==1 or armv7=="default"', {
+                  [ 'arm_version==7 or arm_version=="default"', {
                     'conditions': [
                       [ 'arm_neon==1', {
                         'cflags': ['-mfpu=neon',],
@@ -141,7 +132,7 @@
               }, {
                 # armcompiler=="no"
                 'conditions': [
-                  [ 'armv7==1 or armv7=="default"', {
+                  [ 'arm_version==7 or arm_version=="default"', {
                     'defines': [
                       'CAN_USE_ARMV7_INSTRUCTIONS=1',
                     ],
@@ -194,10 +185,10 @@
             'conditions': [
               ['armcompiler=="yes"', {
                 'conditions': [
-                  [ 'armv7==1', {
+                  [ 'arm_version==7', {
                     'cflags': ['-march=armv7-a',],
                   }],
-                  [ 'armv7==1 or armv7=="default"', {
+                  [ 'arm_version==7 or arm_version=="default"', {
                     'conditions': [
                       [ 'arm_neon==1', {
                         'cflags': ['-mfpu=neon',],
@@ -229,7 +220,7 @@
               }, {
                 # armcompiler=="no"
                 'conditions': [
-                  [ 'armv7==1 or armv7=="default"', {
+                  [ 'arm_version==7 or arm_version=="default"', {
                     'defines': [
                       'CAN_USE_ARMV7_INSTRUCTIONS=1',
                     ],
@@ -277,6 +268,11 @@
           }],  # _toolset=="target"
         ],
       }],  # v8_target_arch=="arm"
+      ['v8_target_arch=="arm64"', {
+        'defines': [
+          'V8_TARGET_ARCH_ARM64',
+        ],
+      }],
       ['v8_target_arch=="ia32"', {
         'defines': [
           'V8_TARGET_ARCH_IA32',
@@ -371,7 +367,7 @@
         },
       }],
       ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
-         or OS=="netbsd"', {
+         or OS=="netbsd" or OS=="qnx"', {
         'conditions': [
           [ 'v8_no_strict_aliasing==1', {
             'cflags': [ '-fno-strict-aliasing' ],
@@ -382,7 +378,7 @@
         'defines': [ '__C99FEATURES__=1' ],  # isinf() etc.
       }],
       ['(OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" \
-         or OS=="netbsd" or OS=="mac" or OS=="android") and \
+         or OS=="netbsd" or OS=="mac" or OS=="android" or OS=="qnx") and \
         (v8_target_arch=="arm" or v8_target_arch=="ia32" or \
          v8_target_arch=="mipsel")', {
         # Check whether the host compiler and target compiler support the
@@ -390,7 +386,7 @@
         'target_conditions': [
           ['_toolset=="host"', {
             'variables': {
-              'm32flag': '<!((echo | $(echo ${CXX_host:-$(which g++)}) -m32 -E - > /dev/null 2>&1) && echo "-m32" || true)',
+              'm32flag': '<!(($(echo ${CXX_host:-$(which g++)}) -m32 -E - > /dev/null 2>&1 < /dev/null) && echo "-m32" || true)',
             },
             'cflags': [ '<(m32flag)' ],
             'ldflags': [ '<(m32flag)' ],
@@ -400,11 +396,11 @@
           }],
           ['_toolset=="target"', {
             'variables': {
-              'm32flag': '<!((echo | $(echo ${CXX_target:-<(CXX)}) -m32 -E - > /dev/null 2>&1) && echo "-m32" || true)',
+              'm32flag': '<!(($(echo ${CXX_target:-<(CXX)}) -m32 -E - > /dev/null 2>&1 < /dev/null) && echo "-m32" || true)',
               'clang%': 0,
             },
             'conditions': [
-              ['(OS!="android" or clang==1) and \
+              ['((OS!="android" and OS!="qnx") or clang==1) and \
                 nacl_target_arch!="nacl_x64"', {
                 'cflags': [ '<(m32flag)' ],
                 'ldflags': [ '<(m32flag)' ],
@@ -416,23 +412,28 @@
           }],
         ],
       }],
-      ['(OS=="linux") and (v8_target_arch=="x64")', {
+      ['(OS=="linux" or OS=="android") and \
+        (v8_target_arch=="x64" or v8_target_arch=="arm64")', {
         # Check whether the host compiler and target compiler support the
         # '-m64' option and set it if so.
         'target_conditions': [
           ['_toolset=="host"', {
             'variables': {
-              'm64flag': '<!((echo | $(echo ${CXX_host:-$(which g++)}) -m64 -E - > /dev/null 2>&1) && echo "-m64" || true)',
+              'm64flag': '<!(($(echo ${CXX_host:-$(which g++)}) -m64 -E - > /dev/null 2>&1 < /dev/null) && echo "-m64" || true)',
             },
             'cflags': [ '<(m64flag)' ],
             'ldflags': [ '<(m64flag)' ],
           }],
           ['_toolset=="target"', {
             'variables': {
-              'm64flag': '<!((echo | $(echo ${CXX_target:-<(CXX)}) -m64 -E - > /dev/null 2>&1) && echo "-m64" || true)',
+              'm64flag': '<!(($(echo ${CXX_target:-<(CXX)}) -m64 -E - > /dev/null 2>&1 < /dev/null) && echo "-m64" || true)',
             },
-            'cflags': [ '<(m64flag)' ],
-            'ldflags': [ '<(m64flag)' ],
+            'conditions': [
+              ['((OS!="android" and OS!="qnx") or clang==1)', {
+                'cflags': [ '<(m64flag)' ],
+                'ldflags': [ '<(m64flag)' ],
+              }],
+            ],
           }]
         ],
       }],
@@ -450,6 +451,7 @@
           'V8_ENABLE_CHECKS',
           'OBJECT_PRINT',
           'VERIFY_HEAP',
+          'DEBUG'
         ],
         'msvs_settings': {
           'VCCLCompilerTool': {
@@ -517,19 +519,12 @@
           },
         },
         'conditions': [
-          ['v8_optimized_debug==2', {
-            'defines': [
-              'NDEBUG',
-            ],
-          }, {
-            'defines': [
-              'DEBUG',
-            ],
-          }],
-          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
+          ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd" or \
+            OS=="qnx"', {
             'cflags': [ '-Wall', '<(werror)', '-W', '-Wno-unused-parameter',
                         '-Wnon-virtual-dtor', '-Woverloaded-virtual',
-                        '<(wno_array_bounds)' ],
+                        '<(wno_array_bounds)',
+                      ],
             'conditions': [
               ['v8_optimized_debug==0', {
                 'cflags!': [
@@ -561,13 +556,24 @@
                 'cflags!': [
                   '-O0',
                   '-O1',
-                  '-O2',
                   '-Os',
                 ],
                 'cflags': [
                   '-fdata-sections',
                   '-ffunction-sections',
-                  '-O3',
+                ],
+                'defines': [
+                  'OPTIMIZED_DEBUG'
+                ],
+                'conditions': [
+                  # TODO(crbug.com/272548): Avoid -O3 in NaCl
+                  ['nacl_target_arch=="none"', {
+                    'cflags': ['-O3'],
+                    'cflags!': ['-O2'],
+                    }, {
+                    'cflags': ['-O2'],
+                    'cflags!': ['-O3'],
+                  }],
                 ],
               }],
               ['v8_optimized_debug!=0 and gcc_version==44 and clang==0', {
@@ -614,13 +620,11 @@
         'conditions': [
           ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
             'cflags!': [
-              '-O2',
               '-Os',
             ],
             'cflags': [
               '-fdata-sections',
               '-ffunction-sections',
-              '-O3',
               '<(wno_array_bounds)',
             ],
             'conditions': [
@@ -629,6 +633,14 @@
                   # Avoid crashes with gcc 4.4 in the v8 test suite.
                   '-fno-tree-vrp',
                 ],
+              }],
+              # TODO(crbug.com/272548): Avoid -O3 in NaCl
+              ['nacl_target_arch=="none"', {
+                'cflags': ['-O3'],
+                'cflags!': ['-O2'],
+              }, {
+                'cflags': ['-O2'],
+                'cflags!': ['-O3'],
               }],
             ],
           }],

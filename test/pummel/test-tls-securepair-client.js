@@ -18,13 +18,15 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
 
-if (!process.versions.openssl) {
-  console.error('Skipping because node compiled without OpenSSL.');
+var common = require('../common');
+
+if (!common.opensslCli) {
+  console.error('Skipping because node compiled without OpenSSL CLI.');
   process.exit(0);
 }
 
-var common = require('../common');
 var join = require('path').join;
 var net = require('net');
 var assert = require('assert');
@@ -34,21 +36,7 @@ var tls = require('tls');
 var exec = require('child_process').exec;
 var spawn = require('child_process').spawn;
 
-maybe(test1);
-
-// There is a bug with 'openssl s_server' which makes it not flush certain
-// important events to stdout when done over a pipe. Therefore we skip this
-// test for all openssl versions less than 1.0.0.
-function maybe(cb) {
-  exec('openssl version', function(err, data) {
-    if (err) throw err;
-    if (/OpenSSL 0\./.test(data)) {
-      console.error('Skipping due to old OpenSSL version.');
-      return;
-    }
-    cb();
-  });
-}
+test1();
 
 // simple/test-tls-securepair-client
 function test1() {
@@ -81,10 +69,10 @@ function test(keyfn, certfn, check, next) {
   certfn = join(common.fixturesDir, certfn);
   var cert = fs.readFileSync(certfn).toString();
 
-  var server = spawn('openssl', ['s_server',
-                                 '-accept', PORT,
-                                 '-cert', certfn,
-                                 '-key', keyfn]);
+  var server = spawn(common.opensslCli, ['s_server',
+                                         '-accept', PORT,
+                                         '-cert', certfn,
+                                         '-key', keyfn]);
   server.stdout.pipe(process.stdout);
   server.stderr.pipe(process.stdout);
 
@@ -140,7 +128,7 @@ function test(keyfn, certfn, check, next) {
   function startClient() {
     var s = new net.Stream();
 
-    var sslcontext = crypto.createCredentials({key: key, cert: cert});
+    var sslcontext = tls.createSecureContext({key: key, cert: cert});
     sslcontext.context.setCiphers('RC4-SHA:AES128-SHA:AES256-SHA');
 
     var pair = tls.createSecurePair(sslcontext, false);

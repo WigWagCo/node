@@ -27,6 +27,9 @@
 
 namespace node {
 
+// Forward declaration
+class Environment;
+
 /**
  * Simple memory allocator.
  *
@@ -72,22 +75,26 @@ NODE_EXTERN size_t ExternalArraySize(enum v8::ExternalArrayType type);
  *             v8::Integer::NewFromUnsigned(array_length));
  * \code
  */
-NODE_EXTERN void Alloc(v8::Handle<v8::Object> obj,
+NODE_EXTERN void Alloc(Environment* env,
+                       v8::Handle<v8::Object> obj,
                        size_t length,
                        enum v8::ExternalArrayType type =
                        v8::kExternalUnsignedByteArray);
-NODE_EXTERN void Alloc(v8::Handle<v8::Object> obj,
+NODE_EXTERN void Alloc(Environment* env,
+                       v8::Handle<v8::Object> obj,
                        char* data,
                        size_t length,
                        enum v8::ExternalArrayType type =
                        v8::kExternalUnsignedByteArray);
-NODE_EXTERN void Alloc(v8::Handle<v8::Object> obj,
+NODE_EXTERN void Alloc(Environment* env,
+                       v8::Handle<v8::Object> obj,
                        size_t length,
                        FreeCallback fn,
                        void* hint,
                        enum v8::ExternalArrayType type =
                        v8::kExternalUnsignedByteArray);
-NODE_EXTERN void Alloc(v8::Handle<v8::Object> obj,
+NODE_EXTERN void Alloc(Environment* env,
+                       v8::Handle<v8::Object> obj,
                        char* data,
                        size_t length,
                        FreeCallback fn,
@@ -99,7 +106,13 @@ NODE_EXTERN void Alloc(v8::Handle<v8::Object> obj,
  * Free memory associated with an externally allocated object. If no external
  * memory is allocated to the object then nothing will happen.
  */
-NODE_EXTERN void AllocDispose(v8::Handle<v8::Object> obj);
+NODE_EXTERN void AllocDispose(Environment* env, v8::Handle<v8::Object> obj);
+
+
+/**
+ * Check if the Object has externally allocated memory.
+ */
+NODE_EXTERN bool HasExternalData(Environment* env, v8::Local<v8::Object> obj);
 
 }  // namespace smalloc
 }  // namespace node

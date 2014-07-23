@@ -5,7 +5,6 @@ markdowns = $(shell find doc -name '*.md' | grep -v 'index') README.md
 
 html_docdeps = html/dochead.html \
                html/docfoot.html \
-               html/docfoot-script.html \
                scripts/doc-build.sh \
                package.json
 
@@ -170,7 +169,6 @@ publish: link doc
 	git push origin &&\
 	git push origin --tags &&\
 	npm publish &&\
-	npm tag npm@$(shell npm -v) $(shell npm -v | awk -F. '{print $$1 "." $$2}') &&\
 	make doc-publish &&\
 	make zip-publish
 
@@ -190,13 +188,10 @@ doc-publish: doc
   done
 	rsync -vazu --stats --no-implied-dirs --delete \
     html/doc/* \
-    node@npmjs.org:/home/node/npm-www/doc
-	rsync -vazu --stats --no-implied-dirs --delete \
-    html/static/webfonts/ \
-    node@npmjs.org:/home/node/npm-www/static/webfonts
+    ../npm-www/doc
 	rsync -vazu --stats --no-implied-dirs --delete \
     html/static/style.css \
-    node@npmjs.org:/home/node/npm-www/static/
+    ../npm-www/static/
 	#cleanup
 	rm -rf html/api
 	for f in html/doc/*.html; do \
