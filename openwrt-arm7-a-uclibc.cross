@@ -1,0 +1,42 @@
+
+
+# http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  MY_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$MY_DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+MY_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
+NODE_DEST_CPU=arm
+
+OPENWRT_BASE=../openwrt-stanga
+export STAGING_DIR=${OPENWRT_BASE}/staging_dir
+
+CROSS_BASE=/mnt/main2/bigwork/OpenWrt-Toolchain-bcm53xx-for-arm_cortex-a9-gcc-4.8-linaro_uClibc-0.9.33.2_eabi/toolchain-arm_cortex-a9_gcc-4.8-linaro_uClibc-0.9.33.2_eabi
+
+PREFIX=${CROSS_BASE}/bin/arm-openwrt-linux-
+
+LIBPATH=${CROSS_BASE}/lib
+
+export AR=${PREFIX}ar
+export CC=${PREFIX}gcc
+export CXX=${PREFIX}g++
+export AR=${PREFIX}ar
+export RANLIB=${PREFIX}ranlib
+export LINK=$CXX
+
+export LDFLAGS='-Wl,-rpath-link '${LIBPATH}
+
+CROSS_SETUP_NAME=$(basename $SOURCE)
+CROSS_NAME=${CROSS_SETUP_NAME%%.*}
+
+export TARGET_PATH=${MY_DIR}/${CROSS_NAME}
+
+#export GYP_DEFINES="v8_use_arm_eabi_hardfloat=true"
+#export CFLAGS="-mfloat-abi=hard -DUSE_EABI_HARDFLOAT"
+#export CXXFLAGS="-mfloat-abi=hard -DUSE_EABI_HARDFLOAT"
+#export CPPFLAGS="-mfloat-abi=hard -DUSE_EABI_HARDFLOAT"
+
+#export GYPFLAGS="-Dv8_use_mips_abi_hardfloat=false -Dv8_can_use_fpu_instructions=false"
